@@ -20,7 +20,7 @@ stanc-rs-codegen = { path = "crates/stanc-rs-codegen", version = "0.1.0" }
 stanc-rs-runtime = { path = "crates/stanc-rs-runtime", version = "0.1.0" }
 stanc-rs = { path = "crates/stanc-rs", version = "0.1.0" }
 serde_json = "1"
-stanmath-rs = { git = "https://github.com/adamrsophie/stanmath-rs", rev = "5ff90703084d1c4931d0cdd0117513ad041cc8f3" }
+stanmath-rs = { git = "https://github.com/adamrsophie/stanmath-rs", rev = "ee054fcf3407c6f6341d8efcc4fe0ff23742d224" }
 rand = { version = "0.10", default-features = false, features = ["std_rng"] }
 
 [workspace.lints.rust]
