@@ -15,6 +15,7 @@ pub mod data;
 pub mod index;
 pub mod io;
 pub mod names;
+pub mod ops;
 pub mod stan;
 
 use std::fmt;
@@ -57,7 +58,10 @@ pub struct ModelError {
 impl ModelError {
     /// Creates an error.
     pub fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
-        ModelError { kind, message: message.into() }
+        ModelError {
+            kind,
+            message: message.into(),
+        }
     }
 
     /// A data error.
@@ -68,6 +72,15 @@ impl ModelError {
     /// A domain error.
     pub fn domain(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::Domain, message)
+    }
+
+    /// Reclassifies a domain error as a data error (constraint violations while reading data or
+    /// running the transformed data block are problems with the data).
+    pub fn in_data(mut self) -> Self {
+        if self.kind == ErrorKind::Domain {
+            self.kind = ErrorKind::Data;
+        }
+        self
     }
 
     /// Returns the error with `context` prepended to its message.
@@ -111,7 +124,10 @@ pub struct DensityOptions {
 impl Default for DensityOptions {
     /// Jacobian included, all constants kept.
     fn default() -> Self {
-        DensityOptions { jacobian: true, propto: false }
+        DensityOptions {
+            jacobian: true,
+            propto: false,
+        }
     }
 }
 
@@ -149,7 +165,12 @@ pub trait GeneratedModel {
     /// Log density at unconstrained parameters `theta`. With `propto`, the terms of `~`
     /// statements that depend only on data are dropped; this only has an effect when `T` is an
     /// autodiff type, so [`Model::log_density`] evaluates `propto` densities with autodiff.
-    fn log_prob_generic<T: check::Scalar>(&self, theta: &[T], jacobian: bool, propto: bool) -> Result<T>;
+    fn log_prob_generic<T: check::Scalar>(
+        &self,
+        theta: &[T],
+        jacobian: bool,
+        propto: bool,
+    ) -> Result<T>;
 
     /// Constrained parameters, then (optionally) transformed parameters and generated quantities,
     /// each flattened in column-major order.
@@ -209,7 +230,10 @@ fn check_len(theta: &[f64], n: usize) -> Result<()> {
     if theta.len() != n {
         return Err(ModelError::new(
             ErrorKind::Parameters,
-            format!("expected {n} unconstrained parameters, found {}", theta.len()),
+            format!(
+                "expected {n} unconstrained parameters, found {}",
+                theta.len()
+            ),
         ));
     }
     Ok(())
@@ -229,7 +253,9 @@ impl<M: GeneratedModel> Model for M {
     }
 
     fn unconstrained_param_names(&self) -> Vec<String> {
-        (1..=GeneratedModel::num_unconstrained(self)).map(|i| format!("theta.{i}")).collect()
+        (1..=GeneratedModel::num_unconstrained(self))
+            .map(|i| format!("theta.{i}"))
+            .collect()
     }
 
     fn log_density(&self, theta: &[f64], opts: DensityOptions) -> Result<f64> {
@@ -245,7 +271,10 @@ impl<M: GeneratedModel> Model for M {
 
     fn log_density_gradient(&self, theta: &[f64], opts: DensityOptions) -> Result<(f64, Vec<f64>)> {
         check_len(theta, GeneratedModel::num_unconstrained(self))?;
-        let r = try_value_and_grad(|p| self.log_prob_generic(p, opts.jacobian, opts.propto), theta)?;
+        let r = try_value_and_grad(
+            |p| self.log_prob_generic(p, opts.jacobian, opts.propto),
+            theta,
+        )?;
         Ok((r.value, r.gradient))
     }
 

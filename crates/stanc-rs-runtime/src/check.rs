@@ -85,21 +85,28 @@ tuple_values!(A 0, B 1, C 2, D 3, E 4, F 5);
 tuple_values!(A 0, B 1, C 2, D 3, E 4, F 5, G 6);
 tuple_values!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7);
 
-/// A scalar type usable in generated code: a stanmath-rs [`Real`] that can also be flattened.
-pub trait Scalar: Real + Values {}
+/// A scalar type usable in generated code: a stanmath-rs [`Real`] that can also be flattened and
+/// printed.
+pub trait Scalar: Real + Values + crate::stan::StanDisplay {}
 
-impl<T: Real + Values> Scalar for T {}
+impl<T: Real + Values + crate::stan::StanDisplay> Scalar for T {}
 
 fn bound_at(b: &[f64], i: usize, n: usize, name: &str) -> Result<f64> {
     match b.len() {
         1 => Ok(b[0]),
         m if m == n => Ok(b[i]),
-        m => Err(ModelError::domain(format!("{name}: bound has {m} elements but the variable has {n}"))),
+        m => Err(ModelError::domain(format!(
+            "{name}: bound has {m} elements but the variable has {n}"
+        ))),
     }
 }
 
 fn violated(name: &str, i: usize, n: usize, x: f64, what: &str) -> ModelError {
-    let at = if n > 1 { format!("[{}]", i + 1) } else { String::new() };
+    let at = if n > 1 {
+        format!("[{}]", i + 1)
+    } else {
+        String::new()
+    };
     ModelError::domain(format!("{name}{at} is {x}, but must be {what}"))
 }
 
@@ -109,7 +116,13 @@ pub fn lower(name: &str, x: &impl Values, lb: &impl Values) -> Result<()> {
     for (i, v) in x.iter().enumerate() {
         let l = bound_at(&b, i, x.len(), name)?;
         if !(*v >= l) {
-            return Err(violated(name, i, x.len(), *v, &format!("greater than or equal to {l}")));
+            return Err(violated(
+                name,
+                i,
+                x.len(),
+                *v,
+                &format!("greater than or equal to {l}"),
+            ));
         }
     }
     Ok(())
@@ -121,7 +134,13 @@ pub fn upper(name: &str, x: &impl Values, ub: &impl Values) -> Result<()> {
     for (i, v) in x.iter().enumerate() {
         let u = bound_at(&b, i, x.len(), name)?;
         if !(*v <= u) {
-            return Err(violated(name, i, x.len(), *v, &format!("less than or equal to {u}")));
+            return Err(violated(
+                name,
+                i,
+                x.len(),
+                *v,
+                &format!("less than or equal to {u}"),
+            ));
         }
     }
     Ok(())
@@ -132,14 +151,21 @@ const TOL: f64 = 1e-8;
 /// A vector of non-negative values summing to one.
 pub fn simplex(name: &str, x: &[f64]) -> Result<()> {
     if x.is_empty() {
-        return Err(ModelError::domain(format!("{name} is not a valid simplex: it has no elements")));
+        return Err(ModelError::domain(format!(
+            "{name} is not a valid simplex: it has no elements"
+        )));
     }
     let s: f64 = x.iter().sum();
     if !((s - 1.0).abs() <= TOL) {
-        return Err(ModelError::domain(format!("{name} is not a valid simplex: its sum is {s}")));
+        return Err(ModelError::domain(format!(
+            "{name} is not a valid simplex: its sum is {s}"
+        )));
     }
     if let Some((i, v)) = x.iter().enumerate().find(|(_, v)| !(**v >= 0.0)) {
-        return Err(ModelError::domain(format!("{name} is not a valid simplex: element {} is {v}", i + 1)));
+        return Err(ModelError::domain(format!(
+            "{name} is not a valid simplex: element {} is {v}",
+            i + 1
+        )));
     }
     Ok(())
 }
@@ -148,7 +174,9 @@ pub fn simplex(name: &str, x: &[f64]) -> Result<()> {
 pub fn unit_vector(name: &str, x: &[f64]) -> Result<()> {
     let ss: f64 = x.iter().map(|v| v * v).sum();
     if x.is_empty() || !((ss - 1.0).abs() <= TOL) {
-        return Err(ModelError::domain(format!("{name} is not a valid unit vector: its squared norm is {ss}")));
+        return Err(ModelError::domain(format!(
+            "{name} is not a valid unit vector: its squared norm is {ss}"
+        )));
     }
     Ok(())
 }
@@ -157,7 +185,9 @@ pub fn unit_vector(name: &str, x: &[f64]) -> Result<()> {
 pub fn sum_to_zero(name: &str, x: &[f64]) -> Result<()> {
     let s: f64 = x.iter().sum();
     if !(s.abs() <= TOL) {
-        return Err(ModelError::domain(format!("{name} does not sum to zero: its sum is {s}")));
+        return Err(ModelError::domain(format!(
+            "{name} does not sum to zero: its sum is {s}"
+        )));
     }
     Ok(())
 }
@@ -183,7 +213,9 @@ pub fn positive_ordered(name: &str, x: &[f64]) -> Result<()> {
     if let Some(v) = x.first()
         && !(*v > 0.0)
     {
-        return Err(ModelError::domain(format!("{name} is not a valid positive_ordered vector: its first element is {v}")));
+        return Err(ModelError::domain(format!(
+            "{name} is not a valid positive_ordered vector: its first element is {v}"
+        )));
     }
     ordered(name, x)
 }
@@ -214,7 +246,9 @@ fn positive_definite(name: &str, m: &Matrix<f64>) -> Result<()> {
             d -= l[j * n + k] * l[j * n + k];
         }
         if !(d > 0.0) {
-            return Err(ModelError::domain(format!("{name} is not positive definite")));
+            return Err(ModelError::domain(format!(
+                "{name} is not positive definite"
+            )));
         }
         let d = d.sqrt();
         l[j * n + j] = d;
@@ -240,7 +274,11 @@ pub fn corr_matrix(name: &str, m: &Matrix<f64>) -> Result<()> {
     cov_matrix(name, m)?;
     for i in 0..m.nrows() {
         if !((m[(i, i)] - 1.0).abs() <= TOL) {
-            return Err(ModelError::domain(format!("{name} is not a valid correlation matrix: diagonal element {} is {}", i + 1, m[(i, i)])));
+            return Err(ModelError::domain(format!(
+                "{name} is not a valid correlation matrix: diagonal element {} is {}",
+                i + 1,
+                m[(i, i)]
+            )));
         }
     }
     Ok(())
@@ -250,16 +288,24 @@ pub fn corr_matrix(name: &str, m: &Matrix<f64>) -> Result<()> {
 pub fn cholesky_factor_cov(name: &str, m: &Matrix<f64>) -> Result<()> {
     let (r, c) = m.shape();
     if r < c {
-        return Err(ModelError::domain(format!("{name} is not a valid Cholesky factor: it has fewer rows than columns")));
+        return Err(ModelError::domain(format!(
+            "{name} is not a valid Cholesky factor: it has fewer rows than columns"
+        )));
     }
     for j in 0..c {
         for i in 0..j.min(r) {
             if m[(i, j)] != 0.0 {
-                return Err(ModelError::domain(format!("{name} is not lower triangular")));
+                return Err(ModelError::domain(format!(
+                    "{name} is not lower triangular"
+                )));
             }
         }
         if !(m[(j, j)] > 0.0) {
-            return Err(ModelError::domain(format!("{name} is not a valid Cholesky factor: diagonal element {} is {}", j + 1, m[(j, j)])));
+            return Err(ModelError::domain(format!(
+                "{name} is not a valid Cholesky factor: diagonal element {} is {}",
+                j + 1,
+                m[(j, j)]
+            )));
         }
     }
     Ok(())
@@ -274,7 +320,10 @@ pub fn cholesky_factor_corr(name: &str, m: &Matrix<f64>) -> Result<()> {
     for i in 0..m.nrows() {
         let ss: f64 = (0..m.ncols()).map(|j| m[(i, j)] * m[(i, j)]).sum();
         if !((ss - 1.0).abs() <= TOL) {
-            return Err(ModelError::domain(format!("{name} is not a valid Cholesky factor of a correlation matrix: row {} has squared norm {ss}", i + 1)));
+            return Err(ModelError::domain(format!(
+                "{name} is not a valid Cholesky factor of a correlation matrix: row {} has squared norm {ss}",
+                i + 1
+            )));
         }
     }
     Ok(())
@@ -290,7 +339,8 @@ pub fn stochastic_column(name: &str, m: &Matrix<f64>) -> Result<()> {
 
 /// Every row is a simplex.
 pub fn stochastic_row(name: &str, m: &Matrix<f64>) -> Result<()> {
-    stochastic_column(name, &m.transpose()).map_err(|e| ModelError::domain(e.message.replace(" column ", " row ")))
+    stochastic_column(name, &m.transpose())
+        .map_err(|e| ModelError::domain(e.message.replace(" column ", " row ")))
 }
 
 /// A matrix whose rows and columns all sum to zero.

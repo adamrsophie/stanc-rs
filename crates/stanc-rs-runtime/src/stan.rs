@@ -2,13 +2,14 @@
 //! generator needs: elementwise container arithmetic, conversions, and printing.
 
 use stanmath_rs::Matrix;
-use stanmath_rs::prelude::Real;
+use stanmath_rs::prelude::{Complex, Dual, Real};
 
 use crate::{ErrorKind, ModelError, Result};
 
 /// Converts an `int` size to `usize`.
 pub fn usize_of(n: i64) -> Result<usize> {
-    usize::try_from(n).map_err(|_| ModelError::new(ErrorKind::Size, format!("size {n} is negative")))
+    usize::try_from(n)
+        .map_err(|_| ModelError::new(ErrorKind::Size, format!("size {n} is negative")))
 }
 
 /// Lifts a data value to the autodiff scalar.
@@ -77,7 +78,13 @@ impl StanDisplay for stanmath_rs::prelude::Var<'_> {
     }
 }
 
-impl<T: StanDisplay> StanDisplay for stanmath_rs::prelude::Complex<T> {
+impl<T: Real> StanDisplay for Dual<T> {
+    fn stan_fmt(&self, out: &mut String) {
+        fmt_real(self.value(), out);
+    }
+}
+
+impl<T: StanDisplay> StanDisplay for Complex<T> {
     fn stan_fmt(&self, out: &mut String) {
         out.push('(');
         self.re.stan_fmt(out);
@@ -122,4 +129,119 @@ impl StanDisplay for &str {
 /// Writes a `print` line to standard output.
 pub fn print(s: String) {
     println!("{s}");
+}
+
+/// Lifts a data complex number.
+pub fn lift_complex<T: Real>(x: Complex<f64>) -> Complex<T> {
+    Complex::new(T::from_f64(x.re), T::from_f64(x.im))
+}
+
+/// Lifts a data complex vector.
+pub fn lift_cvec<T: Real>(x: &[Complex<f64>]) -> Vec<Complex<T>> {
+    x.iter().map(|v| lift_complex(*v)).collect()
+}
+
+/// Lifts a data complex matrix.
+pub fn lift_cmat<T: Real>(x: &Matrix<Complex<f64>>) -> Matrix<Complex<T>> {
+    x.map(|v| lift_complex(*v))
+}
+
+/// A real number as a complex number.
+pub fn to_complex<T: Real>(x: T) -> Complex<T> {
+    Complex::new(x, T::from_f64(0.0))
+}
+
+/// A real vector as a complex vector.
+pub fn to_complex_vec<T: Real>(x: Vec<T>) -> Vec<Complex<T>> {
+    x.into_iter().map(to_complex).collect()
+}
+
+/// A real matrix as a complex matrix.
+pub fn to_complex_mat<T: Real>(x: Matrix<T>) -> Matrix<Complex<T>> {
+    x.map(|v| to_complex(*v))
+}
+
+/// Maps a fallible function over a vector.
+pub fn try_map_vec<A, B>(x: Vec<A>, f: impl FnMut(A) -> Result<B>) -> Result<Vec<B>> {
+    x.into_iter().map(f).collect()
+}
+
+/// Maps a fallible function over a matrix.
+pub fn try_map_mat<A, B>(x: Matrix<A>, f: impl FnMut(A) -> Result<B>) -> Result<Matrix<B>> {
+    let (r, c) = (x.nrows(), x.ncols());
+    Ok(Matrix::from_column_major(
+        r,
+        c,
+        x.into_vec()
+            .into_iter()
+            .map(f)
+            .collect::<Result<Vec<B>>>()?,
+    ))
+}
+
+/// The common length of the vector arguments of a vectorized call.
+pub fn common_len(function: &str, lens: &[usize]) -> Result<usize> {
+    let n = lens.first().copied().unwrap_or(1);
+    if lens.iter().any(|l| *l != n) {
+        return Err(ModelError::new(
+            ErrorKind::Size,
+            format!("{function}: arguments have different sizes {lens:?}"),
+        ));
+    }
+    Ok(n)
+}
+
+/// An `r` by `c` matrix with every element `x`.
+pub fn mat_filled<S: Clone>(r: usize, c: usize, x: S) -> Matrix<S> {
+    Matrix::from_column_major(r, c, vec![x; r * c])
+}
+
+/// A matrix from its rows (the literal `[[a, b], [c, d]]`).
+pub fn matrix_from_rows<S: Clone>(rows: Vec<Vec<S>>) -> Result<Matrix<S>> {
+    let r = rows.len();
+    let c = rows.first().map_or(0, Vec::len);
+    if rows.iter().any(|row| row.len() != c) {
+        return Err(ModelError::new(
+            ErrorKind::Size,
+            "matrix literal rows have different lengths",
+        ));
+    }
+    let mut data = Vec::with_capacity(r * c);
+    for j in 0..c {
+        for row in &rows {
+            data.push(row[j].clone());
+        }
+    }
+    Ok(Matrix::from_column_major(r, c, data))
+}
+
+/// Converts library sizes to Stan integers.
+pub fn usizes_to_ints(v: Vec<usize>) -> Vec<i64> {
+    v.into_iter().map(|x| x as i64).collect()
+}
+
+/// Builds a vector of `n` elements, each computed by `f`.
+pub fn build<A>(n: usize, mut f: impl FnMut() -> Result<A>) -> Result<Vec<A>> {
+    (0..n).map(|_| f()).collect()
+}
+
+/// Sum of an integer array.
+pub fn sum_int(x: &[i64]) -> i64 {
+    x.iter().sum()
+}
+
+/// Largest element of an integer array (an error when empty).
+pub fn max_int(x: &[i64]) -> Result<i64> {
+    x.iter()
+        .copied()
+        .max()
+        .ok_or_else(|| ModelError::domain("max: array is empty"))
+}
+
+/// Smallest element of an integer array (an error when empty).
+pub fn min_int(x: &[i64]) -> Result<i64> {
+    x.iter()
+        .copied()
+        .min()
+        .ok_or_else(|| ModelError::domain("min: array is empty"))
 }

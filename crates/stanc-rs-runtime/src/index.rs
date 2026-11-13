@@ -33,7 +33,11 @@ fn out_of_range(i: i64, len: usize) -> ModelError {
 
 /// The zero-based position of one-based index `i` in a container of length `len`.
 pub fn pos(i: i64, len: usize) -> Result<usize> {
-    if i >= 1 && (i as u64) <= len as u64 { Ok((i - 1) as usize) } else { Err(out_of_range(i, len)) }
+    if i >= 1 && (i as u64) <= len as u64 {
+        Ok((i - 1) as usize)
+    } else {
+        Err(out_of_range(i, len))
+    }
 }
 
 /// The zero-based positions selected by a multi-index.
@@ -52,7 +56,11 @@ pub fn positions(idx: &Idx, len: usize) -> Result<Vec<usize>> {
         Idx::Multi(is) => is.iter().map(|i| pos(*i, len)).collect(),
         Idx::Upfrom(a) => {
             if len == 0 || *a > len as i64 {
-                if *a >= 1 { Ok(vec![]) } else { Err(out_of_range(*a, len)) }
+                if *a >= 1 {
+                    Ok(vec![])
+                } else {
+                    Err(out_of_range(*a, len))
+                }
             } else {
                 range(*a, len as i64)
             }
@@ -81,7 +89,10 @@ pub fn at_mut<T>(v: &mut [T], i: i64) -> Result<&mut T> {
 
 /// The elements of `v` selected by a multi-index.
 pub fn multi<T: Clone>(v: &[T], idx: &Idx) -> Result<Vec<T>> {
-    Ok(positions(idx, v.len())?.into_iter().map(|p| v[p].clone()).collect())
+    Ok(positions(idx, v.len())?
+        .into_iter()
+        .map(|p| v[p].clone())
+        .collect())
 }
 
 /// `m[i, j]` by reference.
@@ -126,24 +137,37 @@ pub fn submatrix<T: Clone>(m: &Matrix<T>, rows: &Idx, cols: &Idx) -> Result<Matr
 /// Elements `rows` of column `j`.
 pub fn col_multi<T: Clone>(m: &Matrix<T>, rows: &Idx, j: i64) -> Result<Vec<T>> {
     let c = pos(j, m.ncols())?;
-    Ok(positions(rows, m.nrows())?.into_iter().map(|r| m[(r, c)].clone()).collect())
+    Ok(positions(rows, m.nrows())?
+        .into_iter()
+        .map(|r| m[(r, c)].clone())
+        .collect())
 }
 
 /// Elements `cols` of row `i`.
 pub fn row_multi<T: Clone>(m: &Matrix<T>, i: i64, cols: &Idx) -> Result<Vec<T>> {
     let r = pos(i, m.nrows())?;
-    Ok(positions(cols, m.ncols())?.into_iter().map(|c| m[(r, c)].clone()).collect())
+    Ok(positions(cols, m.ncols())?
+        .into_iter()
+        .map(|c| m[(r, c)].clone())
+        .collect())
 }
 
 fn size_mismatch(what: &str, want: usize, got: usize) -> ModelError {
-    ModelError::new(ErrorKind::Size, format!("{what}: assigning {got} values to {want} positions"))
+    ModelError::new(
+        ErrorKind::Size,
+        format!("{what}: assigning {got} values to {want} positions"),
+    )
 }
 
 /// `v[idx] = values`.
 pub fn assign_multi<T>(v: &mut [T], idx: &Idx, values: Vec<T>) -> Result<()> {
     let ps = positions(idx, v.len())?;
     if ps.len() != values.len() {
-        return Err(size_mismatch("multi-index assignment", ps.len(), values.len()));
+        return Err(size_mismatch(
+            "multi-index assignment",
+            ps.len(),
+            values.len(),
+        ));
     }
     for (p, x) in ps.into_iter().zip(values) {
         v[p] = x;
@@ -164,11 +188,20 @@ pub fn assign_row<T>(m: &mut Matrix<T>, i: i64, values: Vec<T>) -> Result<()> {
 }
 
 /// `m[rows, cols] = values`.
-pub fn assign_submatrix<T>(m: &mut Matrix<T>, rows: &Idx, cols: &Idx, values: Matrix<T>) -> Result<()> {
+pub fn assign_submatrix<T>(
+    m: &mut Matrix<T>,
+    rows: &Idx,
+    cols: &Idx,
+    values: Matrix<T>,
+) -> Result<()> {
     let rs = positions(rows, m.nrows())?;
     let cs = positions(cols, m.ncols())?;
     if values.nrows() != rs.len() || values.ncols() != cs.len() {
-        return Err(size_mismatch("matrix assignment", rs.len() * cs.len(), values.len()));
+        return Err(size_mismatch(
+            "matrix assignment",
+            rs.len() * cs.len(),
+            values.len(),
+        ));
     }
     let data = values.into_vec();
     let mut it = data.into_iter();
@@ -226,7 +259,10 @@ mod tests {
         assert_eq!(multi(&v, &Idx::Between(3, 2)).unwrap(), Vec::<i32>::new());
         assert_eq!(multi(&v, &Idx::Upfrom(2)).unwrap(), vec![20, 30]);
         assert_eq!(multi(&v, &Idx::Downfrom(2)).unwrap(), vec![10, 20]);
-        assert_eq!(multi(&v, &Idx::Multi(vec![3, 1, 3])).unwrap(), vec![30, 10, 30]);
+        assert_eq!(
+            multi(&v, &Idx::Multi(vec![3, 1, 3])).unwrap(),
+            vec![30, 10, 30]
+        );
         assert!(multi(&v, &Idx::Multi(vec![4])).is_err());
         let m = Matrix::from_column_major(2, 2, vec![1, 2, 3, 4]);
         assert_eq!(*mat_at(&m, 2, 1).unwrap(), 2);

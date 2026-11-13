@@ -1,0 +1,10 @@
+data {
+  real y;
+}
+parameters {
+  real mu;
+}
+model {
+  mu ~ normal(0, 5);
+  y ~ normal(mu, 1);
+}

@@ -155,6 +155,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "stanc-rs"
+version = "0.1.0"
+dependencies = [
+ "stanc-rs-codegen",
+ "stanc-rs-semantic",
+ "stanc-rs-syntax",
+]
+
+[[package]]
+name = "stanc-rs-codegen"
+version = "0.1.0"
+dependencies = [
+ "stanc-rs-semantic",
+ "stanc-rs-syntax",
+]
+
+[[package]]
+name = "stanc-rs-fixtures"
+version = "0.1.0"
+dependencies = [
+ "stanc-rs",
+ "stanc-rs-runtime",
+]
+
+[[package]]
 name = "stanc-rs-runtime"
 version = "0.1.0"
 dependencies = [

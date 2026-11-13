@@ -1,0 +1,16 @@
+[package]
+name = "stanc-rs-codegen"
+description = "Rust code generation from typed Stan programs for stanc-rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+stanc-rs-syntax.workspace = true
+stanc-rs-semantic.workspace = true
+
+[lints]
+workspace = true

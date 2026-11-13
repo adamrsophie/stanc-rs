@@ -1,0 +1,143 @@
+//! stanc-rs: a Stan to Rust compiler.
+//!
+//! This crate ties the pipeline together: [`stanc_rs_syntax`] parses a Stan program,
+//! [`stanc_rs_semantic`] type checks it, and [`stanc_rs_codegen`] emits a Rust module that
+//! implements `stanc_rs_runtime::GeneratedModel` on top of stanmath-rs.
+//!
+//! stanc-rs is an independent, unofficial implementation of the Stan language (stanc3 v2.40.0).
+//!
+//! ```
+//! let rust = stanc_rs::compile_source(
+//!     "normal.stan",
+//!     "data { real y; } parameters { real mu; } model { y ~ normal(mu, 5); }",
+//!     &stanc_rs::Options::default(),
+//! )
+//! .unwrap()
+//! .rust;
+//! assert!(rust.contains("impl rt::GeneratedModel for Model"));
+//! ```
+
+use std::path::{Path, PathBuf};
+
+pub use stanc_rs_codegen as codegen;
+pub use stanc_rs_semantic as semantic;
+pub use stanc_rs_syntax as syntax;
+
+use stanc_rs_semantic::typed::TProgram;
+use stanc_rs_syntax::{IncludeResolver, SourceMap, ast::Program};
+
+/// Compiler options.
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+    /// Model name; defaults to the file stem followed by `_model`, as in stanc3.
+    pub model_name: Option<String>,
+    /// Directories searched for `#include` files.
+    pub include_paths: Vec<PathBuf>,
+    /// Accept functions that are declared without a definition.
+    pub allow_undefined: bool,
+}
+
+/// A successfully checked program.
+pub struct Checked {
+    /// The parsed program.
+    pub ast: Program,
+    /// The typed program.
+    pub typed: TProgram,
+    /// Rendered warnings.
+    pub warnings: Vec<String>,
+}
+
+/// A successfully compiled program.
+pub struct Compiled {
+    /// The generated Rust module.
+    pub rust: String,
+    /// Rendered warnings.
+    pub warnings: Vec<String>,
+}
+
+/// Finds `#include` files in a list of directories.
+struct FileIncludes<'a>(&'a [PathBuf]);
+
+impl IncludeResolver for FileIncludes<'_> {
+    fn resolve(&self, name: &str) -> Option<(String, String)> {
+        self.0.iter().find_map(|dir| {
+            let p = dir.join(name);
+            std::fs::read_to_string(&p)
+                .ok()
+                .map(|text| (p.display().to_string(), text))
+        })
+    }
+}
+
+/// The default model name for a file name: `<stem>_model`.
+pub fn default_model_name(file_name: &str) -> String {
+    let stem = Path::new(file_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("model");
+    let mut name: String = stem
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    if name.starts_with(|c: char| c.is_ascii_digit()) {
+        name.insert(0, '_');
+    }
+    format!("{name}_model")
+}
+
+/// Parses a program; errors are rendered with source context.
+pub fn parse(name: &str, text: &str, opts: &Options) -> Result<(Program, SourceMap), String> {
+    let functions_only = name.ends_with(".stanfunctions");
+    stanc_rs_syntax::parse_with(
+        name,
+        text,
+        &FileIncludes(&opts.include_paths),
+        functions_only,
+    )
+    .map_err(|(d, sources)| d.render(&sources))
+}
+
+/// Parses and type checks a program.
+pub fn check_source(name: &str, text: &str, opts: &Options) -> Result<Checked, String> {
+    let (ast, sources) = parse(name, text, opts)?;
+    let model_name = opts
+        .model_name
+        .clone()
+        .unwrap_or_else(|| default_model_name(name));
+    let copts = stanc_rs_semantic::CheckOptions {
+        allow_undefined: opts.allow_undefined,
+        model_name,
+    };
+    let checked = stanc_rs_semantic::check_program(&ast, &copts).map_err(|d| d.render(&sources))?;
+    let warnings = checked
+        .warnings
+        .iter()
+        .map(|w| w.render(&sources))
+        .collect();
+    Ok(Checked {
+        ast,
+        typed: checked.program,
+        warnings,
+    })
+}
+
+/// Parses, type checks, and translates a program to Rust.
+pub fn compile_source(name: &str, text: &str, opts: &Options) -> Result<Compiled, String> {
+    let (ast, sources) = parse(name, text, opts)?;
+    let model_name = opts
+        .model_name
+        .clone()
+        .unwrap_or_else(|| default_model_name(name));
+    let copts = stanc_rs_semantic::CheckOptions {
+        allow_undefined: opts.allow_undefined,
+        model_name,
+    };
+    let checked = stanc_rs_semantic::check_program(&ast, &copts).map_err(|d| d.render(&sources))?;
+    let warnings = checked
+        .warnings
+        .iter()
+        .map(|w| w.render(&sources))
+        .collect();
+    let rust = stanc_rs_codegen::generate(&checked.program).map_err(|d| d.render(&sources))?;
+    Ok(Compiled { rust, warnings })
+}

@@ -1,0 +1,19 @@
+[package]
+name = "stanc-rs-fixtures"
+description = "Stan models compiled by stanc-rs at build time, with numerical tests of the generated code"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+stanc-rs-runtime.workspace = true
+
+[build-dependencies]
+stanc-rs.workspace = true
+
+[lints]
+workspace = true

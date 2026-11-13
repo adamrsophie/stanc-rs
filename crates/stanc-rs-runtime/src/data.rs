@@ -48,6 +48,13 @@ impl Data {
             .ok_or_else(|| ModelError::data(format!("variable '{name}' not found in the data")))
     }
 
+    /// The value of variable `name`, or an empty list when it is absent (CmdStan lets variables
+    /// with no elements be omitted; reading a non-empty shape from it still fails).
+    pub fn get_or_empty(&self, name: &str) -> &Value {
+        static EMPTY: Value = Value::Array(Vec::new());
+        self.root.get(name).unwrap_or(&EMPTY)
+    }
+
     /// True if variable `name` is present.
     pub fn contains(&self, name: &str) -> bool {
         self.root.contains_key(name)
@@ -83,7 +90,9 @@ pub fn int(v: &Value, name: &str) -> Result<i64> {
 /// A `real`.
 pub fn real(v: &Value, name: &str) -> Result<f64> {
     match v {
-        Value::Number(n) => n.as_f64().ok_or_else(|| shape_err(name, "a real number", v)),
+        Value::Number(n) => n
+            .as_f64()
+            .ok_or_else(|| shape_err(name, "a real number", v)),
         Value::String(s) => match s.as_str() {
             "NaN" | "nan" => Ok(f64::NAN),
             "Inf" | "inf" | "+Inf" | "+inf" | "Infinity" | "+Infinity" => Ok(f64::INFINITY),
@@ -111,7 +120,12 @@ fn list<'a>(v: &'a Value, n: usize, name: &str) -> Result<&'a [Value]> {
 }
 
 /// An array of `n` elements read by `elem`.
-pub fn array<T>(v: &Value, n: usize, name: &str, mut elem: impl FnMut(&Value) -> Result<T>) -> Result<Vec<T>> {
+pub fn array<T>(
+    v: &Value,
+    n: usize,
+    name: &str,
+    mut elem: impl FnMut(&Value) -> Result<T>,
+) -> Result<Vec<T>> {
     list(v, n, name)?.iter().map(&mut elem).collect()
 }
 
@@ -165,16 +179,17 @@ pub fn complex_matrix(v: &Value, r: usize, c: usize, name: &str) -> Result<Matri
 /// Slot `k` (one-based) of a tuple given as an object with keys `"1"`, `"2"`, ....
 pub fn tuple_slot<'a>(v: &'a Value, k: usize, name: &str) -> Result<&'a Value> {
     match v {
-        Value::Object(m) => m
-            .get(&k.to_string())
-            .ok_or_else(|| ModelError::data(format!("variable '{name}': tuple slot {k} is missing"))),
+        Value::Object(m) => m.get(&k.to_string()).ok_or_else(|| {
+            ModelError::data(format!("variable '{name}': tuple slot {k} is missing"))
+        }),
         _ => Err(shape_err(name, "a tuple object", v)),
     }
 }
 
 /// Converts a declared size to `usize`, rejecting negative sizes.
 pub fn size(n: i64, name: &str) -> Result<usize> {
-    usize::try_from(n).map_err(|_| ModelError::domain(format!("variable '{name}': size {n} is negative")))
+    usize::try_from(n)
+        .map_err(|_| ModelError::domain(format!("variable '{name}': size {n} is negative")))
 }
 
 #[cfg(test)]
@@ -195,7 +210,10 @@ mod tests {
         assert!(vector(d.get("y").unwrap(), 2, "y").is_err());
         let m = matrix(d.get("m").unwrap(), 2, 3, "m").unwrap();
         assert_eq!(m.as_slice(), &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
-        assert_eq!(complex(d.get("c").unwrap(), "c").unwrap(), Complex::new(1.0, -2.0));
+        assert_eq!(
+            complex(d.get("c").unwrap(), "c").unwrap(),
+            Complex::new(1.0, -2.0)
+        );
         let t = d.get("t").unwrap();
         assert_eq!(int(tuple_slot(t, 1, "t").unwrap(), "t").unwrap(), 2);
         assert!(d.get("missing").is_err());

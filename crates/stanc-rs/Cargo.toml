@@ -1,0 +1,21 @@
+[package]
+name = "stanc-rs"
+description = "A Stan to Rust compiler: parses, type checks, and translates Stan programs into Rust models built on stanmath-rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+
+[dependencies]
+stanc-rs-syntax.workspace = true
+stanc-rs-semantic.workspace = true
+stanc-rs-codegen.workspace = true
+
+[lints]
+workspace = true

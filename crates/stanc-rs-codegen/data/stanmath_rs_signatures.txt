@@ -1,0 +1,759 @@
+# stanmath-rs function signatures for Stan library names; written by
+# tools/extract_stanmath_signatures.py. Do not edit by hand.
+autodiff Phi Phi<T: Real>(T) -> T
+autodiff Phi_approx Phi_approx<T: Real>(T) -> T
+autodiff abs abs<T: Real>(T) -> T
+autodiff acos acos<T: Real>(T) -> T
+autodiff acosh acosh<T: Real>(T) -> T
+linalg add add<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+linalg add_diag add_diag<T: Real>(&Matrix<T>, T) -> Matrix<T>
+linalg add_diag add_diag_complex<R: Ring>(&Matrix<R>, R) -> Matrix<R>
+linalg add_diag add_diag_vector<T: Real>(&Matrix<T>, &[T]) -> Result<Matrix<T>>
+linalg add_diag add_diag_vector_complex<R: Ring>(&Matrix<R>, &[R]) -> Result<Matrix<R>>
+solvers algebra_solver algebra_solver<T: Real, F: AlgebraSystemData>(&F, &[f64], &[T], &[f64], &[i64], Option<&SystemOptions>) -> Result<Vec<T>>
+solvers algebra_solver_newton algebra_solver_newton<T: Real, F: AlgebraSystemData>(&F, &[f64], &[T], &[f64], &[i64], Option<&SystemOptions>) -> Result<Vec<T>>
+linalg append_array append_array<T: Clone>(&[T], &[T]) -> Vec<T>
+linalg append_col append_col<T: Clone>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+linalg append_col append_col_matrix_vector<T: Clone>(&Matrix<T>, &[T]) -> Result<Matrix<T>>
+linalg append_col append_col_vector_matrix<T: Clone>(&[T], &Matrix<T>) -> Result<Matrix<T>>
+linalg append_col append_col_vectors<T: Clone>(&[T], &[T]) -> Result<Matrix<T>>
+linalg append_row append_row<T: Clone>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+linalg append_row append_row_matrix_row_vector<T: Clone>(&Matrix<T>, &[T]) -> Result<Matrix<T>>
+linalg append_row append_row_row_vector_matrix<T: Clone>(&[T], &Matrix<T>) -> Result<Matrix<T>>
+linalg append_row append_row_row_vectors<T: Clone>(&[T], &[T]) -> Result<Matrix<T>>
+autodiff arg arg<T: Real>(Complex<T>) -> T
+autodiff asin asin<T: Real>(T) -> T
+autodiff asinh asinh<T: Real>(T) -> T
+autodiff atan atan<T: Real>(T) -> T
+autodiff atan2 atan2<T: Real>(T, T) -> T
+autodiff atanh atanh<T: Real>(T) -> T
+distributions bernoulli_cdf bernoulli_cdf<N: IntArg, T>(N, T) -> Result<Promoted<(T), 1>>
+distributions bernoulli_lccdf bernoulli_lccdf<N: IntArg, T>(N, T) -> Result<Promoted<(T), 1>>
+distributions bernoulli_lcdf bernoulli_lcdf<N: IntArg, T>(N, T) -> Result<Promoted<(T), 1>>
+distributions bernoulli_logit_glm_lpmf bernoulli_logit_glm_lpmf<N: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real>(N, &Matrix<X>, A, &[B]) -> Result<T>
+distributions bernoulli_logit_glm_lpmf bernoulli_logit_glm_lpmf_row<N: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real>(N, &[X], A, &[B]) -> Result<T>
+distributions bernoulli_logit_glm_lupmf bernoulli_logit_glm_lupmf<N: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real>(N, &Matrix<X>, A, &[B]) -> Result<T>
+distributions bernoulli_logit_glm_lupmf bernoulli_logit_glm_lupmf_row<N: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real>(N, &[X], A, &[B]) -> Result<T>
+distributions bernoulli_logit_glm_rng bernoulli_logit_glm_rng<A: Arg, R: Rng+?Sized>(&Matrix<f64>, A, &[f64], &mut R) -> Result<Vec<i64>>
+distributions bernoulli_logit_glm_rng bernoulli_logit_glm_rng_row<A: Arg, R: Rng+?Sized>(&[f64], A, &[f64], &mut R) -> Result<Vec<i64>>
+distributions bernoulli_logit_lpmf bernoulli_logit_lpmf<N: IntArg, A>(N, A) -> Result<Promoted<(A), 1>>
+distributions bernoulli_logit_lupmf bernoulli_logit_lupmf<N: IntArg, A>(N, A) -> Result<Promoted<(A), 1>>
+distributions bernoulli_logit_rng bernoulli_logit_rng<R: Rng+?Sized>(f64, &mut R) -> Result<i64>
+distributions bernoulli_lpmf bernoulli_lpmf<N: IntArg, T>(N, T) -> Result<Promoted<(T), 1>>
+distributions bernoulli_lupmf bernoulli_lupmf<N: IntArg, T>(N, T) -> Result<Promoted<(T), 1>>
+distributions bernoulli_rng bernoulli_rng<R: Rng+?Sized>(f64, &mut R) -> Result<i64>
+autodiff bessel_first_kind bessel_first_kind<T: Real>(i32, T) -> T
+autodiff bessel_second_kind bessel_second_kind<T: Real>(i32, T) -> T
+autodiff beta beta<T: Real>(T, T) -> T
+distributions beta_binomial_cdf beta_binomial_cdf<N: IntArg, M: IntArg, A, B>(N, M, A, B) -> Result<Promoted<(A, B), 2>>
+distributions beta_binomial_lccdf beta_binomial_lccdf<N: IntArg, M: IntArg, A, B>(N, M, A, B) -> Result<Promoted<(A, B), 2>>
+distributions beta_binomial_lcdf beta_binomial_lcdf<N: IntArg, M: IntArg, A, B>(N, M, A, B) -> Result<Promoted<(A, B), 2>>
+distributions beta_binomial_lpmf beta_binomial_lpmf<N: IntArg, M: IntArg, A, B>(N, M, A, B) -> Result<Promoted<(A, B), 2>>
+distributions beta_binomial_lupmf beta_binomial_lupmf<N: IntArg, M: IntArg, A, B>(N, M, A, B) -> Result<Promoted<(A, B), 2>>
+distributions beta_binomial_rng beta_binomial_rng<R: Rng+?Sized>(i64, f64, f64, &mut R) -> Result<i64>
+distributions beta_cdf beta_cdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions beta_lccdf beta_lccdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions beta_lcdf beta_lcdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions beta_lpdf beta_lpdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions beta_lupdf beta_lupdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions beta_neg_binomial_cdf beta_neg_binomial_cdf<N: IntArg, R, A, B>(N, R, A, B) -> Result<Promoted<(R, A, B), 3>>
+distributions beta_neg_binomial_lccdf beta_neg_binomial_lccdf<N: IntArg, R, A, B>(N, R, A, B) -> Result<Promoted<(R, A, B), 3>>
+distributions beta_neg_binomial_lcdf beta_neg_binomial_lcdf<N: IntArg, R, A, B>(N, R, A, B) -> Result<Promoted<(R, A, B), 3>>
+distributions beta_neg_binomial_lpmf beta_neg_binomial_lpmf<N: IntArg, R, A, B>(N, R, A, B) -> Result<Promoted<(R, A, B), 3>>
+distributions beta_neg_binomial_lupmf beta_neg_binomial_lupmf<N: IntArg, R, A, B>(N, R, A, B) -> Result<Promoted<(R, A, B), 3>>
+distributions beta_neg_binomial_rng beta_neg_binomial_rng<R: Rng+?Sized>(f64, f64, f64, &mut R) -> Result<i64>
+distributions beta_proportion_lccdf beta_proportion_lccdf<Y, M, K>(Y, M, K) -> Result<Promoted<(Y, M, K), 3>>
+distributions beta_proportion_lcdf beta_proportion_lcdf<Y, M, K>(Y, M, K) -> Result<Promoted<(Y, M, K), 3>>
+distributions beta_proportion_lpdf beta_proportion_lpdf<Y, M, K>(Y, M, K) -> Result<Promoted<(Y, M, K), 3>>
+distributions beta_proportion_lupdf beta_proportion_lupdf<Y, M, K>(Y, M, K) -> Result<Promoted<(Y, M, K), 3>>
+distributions beta_proportion_rng beta_proportion_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+distributions beta_rng beta_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+autodiff binary_log_loss binary_log_loss<T: Real>(i64, T) -> T
+distributions binomial_cdf binomial_cdf<N: IntArg, M: IntArg, T>(N, M, T) -> Result<Promoted<(T), 1>>
+distributions binomial_lccdf binomial_lccdf<N: IntArg, M: IntArg, T>(N, M, T) -> Result<Promoted<(T), 1>>
+distributions binomial_lcdf binomial_lcdf<N: IntArg, M: IntArg, T>(N, M, T) -> Result<Promoted<(T), 1>>
+distributions binomial_logit_glm_lpmf binomial_logit_glm_lpmf<N: IntArg, M: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real>(N, M, &Matrix<X>, A, &[B]) -> Result<T>
+distributions binomial_logit_glm_lpmf binomial_logit_glm_lpmf_row<N: IntArg, M: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real>(N, M, &[X], A, &[B]) -> Result<T>
+distributions binomial_logit_glm_lupmf binomial_logit_glm_lupmf<N: IntArg, M: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real>(N, M, &Matrix<X>, A, &[B]) -> Result<T>
+distributions binomial_logit_glm_lupmf binomial_logit_glm_lupmf_row<N: IntArg, M: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real>(N, M, &[X], A, &[B]) -> Result<T>
+distributions binomial_logit_lpmf binomial_logit_lpmf<N: IntArg, M: IntArg, A>(N, M, A) -> Result<Promoted<(A), 1>>
+distributions binomial_logit_lupmf binomial_logit_lupmf<N: IntArg, M: IntArg, A>(N, M, A) -> Result<Promoted<(A), 1>>
+distributions binomial_lpmf binomial_lpmf<N: IntArg, M: IntArg, T>(N, M, T) -> Result<Promoted<(T), 1>>
+distributions binomial_lupmf binomial_lupmf<N: IntArg, M: IntArg, T>(N, M, T) -> Result<Promoted<(T), 1>>
+distributions binomial_rng binomial_rng<R: Rng+?Sized>(i64, f64, &mut R) -> Result<i64>
+linalg block block<T: Clone>(&Matrix<T>, usize, usize, usize, usize) -> Result<Matrix<T>>
+distributions categorical_logit_glm_lpmf categorical_logit_glm_lpmf<N: IntArg, X: Lift+Copy, A: Lift+Copy, B: Lift+Copy, T: Real>(N, &Matrix<X>, &[A], &Matrix<B>) -> Result<T>
+distributions categorical_logit_glm_lpmf categorical_logit_glm_lpmf_row<N: IntArg, X: Lift+Copy, A: Lift+Copy, B: Lift+Copy, T: Real>(N, &[X], &[A], &Matrix<B>) -> Result<T>
+distributions categorical_logit_glm_lupmf categorical_logit_glm_lupmf<N: IntArg, X: Lift+Copy, A: Lift+Copy, B: Lift+Copy, T: Real>(N, &Matrix<X>, &[A], &Matrix<B>) -> Result<T>
+distributions categorical_logit_glm_lupmf categorical_logit_glm_lupmf_row<N: IntArg, X: Lift+Copy, A: Lift+Copy, B: Lift+Copy, T: Real>(N, &[X], &[A], &Matrix<B>) -> Result<T>
+distributions categorical_logit_lpmf categorical_logit_lpmf<N: IntArg, T: Real>(N, &[T]) -> Result<T>
+distributions categorical_logit_lupmf categorical_logit_lupmf<N: IntArg, T: Real>(N, &[T]) -> Result<T>
+distributions categorical_logit_rng categorical_logit_rng<R: Rng+?Sized>(&[f64], &mut R) -> Result<i64>
+distributions categorical_lpmf categorical_lpmf<N: IntArg, T: Real>(N, &[T]) -> Result<T>
+distributions categorical_lupmf categorical_lupmf<N: IntArg, T: Real>(N, &[T]) -> Result<T>
+distributions categorical_rng categorical_rng<R: Rng+?Sized>(&[f64], &mut R) -> Result<i64>
+distributions cauchy_cdf cauchy_cdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions cauchy_lccdf cauchy_lccdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions cauchy_lcdf cauchy_lcdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions cauchy_lpdf cauchy_lpdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions cauchy_lupdf cauchy_lupdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions cauchy_rng cauchy_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+autodiff cbrt cbrt<T: Real>(T) -> T
+autodiff ceil ceil<T: Real>(T) -> T
+distributions chi_square_cdf chi_square_cdf<Y, N>(Y, N) -> Result<Promoted<(Y, N), 2>>
+distributions chi_square_lccdf chi_square_lccdf<Y, N>(Y, N) -> Result<Promoted<(Y, N), 2>>
+distributions chi_square_lcdf chi_square_lcdf<Y, N>(Y, N) -> Result<Promoted<(Y, N), 2>>
+distributions chi_square_lpdf chi_square_lpdf<Y, N>(Y, N) -> Result<Promoted<(Y, N), 2>>
+distributions chi_square_lupdf chi_square_lupdf<Y, N>(Y, N) -> Result<Promoted<(Y, N), 2>>
+distributions chi_square_rng chi_square_rng<R: Rng+?Sized>(f64, &mut R) -> Result<f64>
+linalg chol2inv chol2inv<T: Real>(&Matrix<T>) -> Result<Matrix<T>>
+linalg cholesky_decompose cholesky_decompose<T: Real>(&Matrix<T>) -> Result<Matrix<T>>
+transforms cholesky_factor_corr_constrain cholesky_factor_corr_constrain<T: Real>(&[T], usize) -> Result<Matrix<T>>
+transforms cholesky_factor_cov_constrain cholesky_factor_cov_constrain<T: Real>(&[T], usize, usize) -> Result<Matrix<T>>
+autodiff choose choose<>(i64, i64) -> Result<i64>
+linalg col col<T: Clone>(&Matrix<T>, usize) -> Result<Vec<T>>
+linalg cols cols<T>(&Matrix<T>) -> usize
+linalg columns_dot_product columns_dot_product<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Vec<T>>
+linalg columns_dot_product columns_dot_product_complex<R: Ring>(&Matrix<R>, &Matrix<R>) -> Result<Vec<R>>
+linalg columns_dot_self columns_dot_self<T: Real>(&Matrix<T>) -> Vec<T>
+linalg columns_dot_self columns_dot_self_complex<T: Real>(&Matrix<Complex<T>>) -> Vec<Complex<T>>
+linalg complex_schur_decompose complex_schur_decompose<T: Real>(&Matrix<T>) -> Result<(Matrix<Complex<T>>, Matrix<Complex<T>>)>
+linalg complex_schur_decompose complex_schur_decompose_complex<T: Real>(&Matrix<Complex<T>>) -> Result<(Matrix<Complex<T>>, Matrix<Complex<T>>)>
+linalg complex_schur_decompose_t complex_schur_decompose_t<T: Real>(&Matrix<T>) -> Result<Matrix<Complex<T>>>
+linalg complex_schur_decompose_t complex_schur_decompose_t_complex<T: Real>(&Matrix<Complex<T>>) -> Result<Matrix<Complex<T>>>
+linalg complex_schur_decompose_u complex_schur_decompose_u<T: Real>(&Matrix<T>) -> Result<Matrix<Complex<T>>>
+linalg complex_schur_decompose_u complex_schur_decompose_u_complex<T: Real>(&Matrix<Complex<T>>) -> Result<Matrix<Complex<T>>>
+autodiff conj conj<T: Real>(Complex<T>) -> Complex<T>
+transforms corr_matrix_constrain corr_matrix_constrain<T: Real>(&[T], usize) -> Result<Matrix<T>>
+autodiff cos cos<T: Real>(T) -> T
+autodiff cosh cosh<T: Real>(T) -> T
+transforms cov_matrix_constrain cov_matrix_constrain<T: Real>(&[T], usize) -> Result<Matrix<T>>
+linalg crossprod crossprod<T: Real>(&Matrix<T>) -> Result<Matrix<T>>
+linalg csr_extract csr_extract<T: Real>(&Matrix<T>) -> CsrMatrix<T>
+linalg csr_extract_u csr_extract_u<T: Real>(&Matrix<T>) -> Vec<usize>
+linalg csr_extract_v csr_extract_v<T: Real>(&Matrix<T>) -> Vec<usize>
+linalg csr_extract_w csr_extract_w<T: Real>(&Matrix<T>) -> Vec<T>
+linalg csr_matrix_times_vector csr_matrix_times_vector<T: Real>(&CsrMatrix<T>, &[T]) -> Result<Vec<T>>
+linalg csr_to_dense_matrix csr_to_dense_matrix<T: Real>(&CsrMatrix<T>) -> Result<Matrix<T>>
+linalg cumulative_sum cumulative_sum<T: Real>(&[T]) -> Vec<T>
+linalg cumulative_sum cumulative_sum_complex<R: Ring>(&[R]) -> Vec<R>
+linalg cumulative_sum cumulative_sum_int<>(&[i64]) -> Vec<i64>
+linalg determinant determinant<T: Real>(&Matrix<T>) -> Result<T>
+linalg diag_matrix diag_matrix<T: Real>(&[T]) -> Matrix<T>
+linalg diag_matrix diag_matrix_complex<R: Ring>(&[R]) -> Matrix<R>
+linalg diag_post_multiply diag_post_multiply<T: Real>(&Matrix<T>, &[T]) -> Result<Matrix<T>>
+linalg diag_post_multiply diag_post_multiply_complex<R: Ring>(&Matrix<R>, &[R]) -> Result<Matrix<R>>
+linalg diag_pre_multiply diag_pre_multiply<T: Real>(&[T], &Matrix<T>) -> Result<Matrix<T>>
+linalg diag_pre_multiply diag_pre_multiply_complex<R: Ring>(&[R], &Matrix<R>) -> Result<Matrix<R>>
+linalg diagonal diagonal<T: Real>(&Matrix<T>) -> Vec<T>
+linalg diagonal diagonal_complex<R: Ring>(&Matrix<R>) -> Vec<R>
+autodiff digamma digamma<T: Real>(T) -> T
+linalg dims dims<D: Dims+?Sized>(&D) -> Vec<usize>
+distributions dirichlet_lpdf dirichlet_lpdf<T: Real, A: Lift+Copy>(&[T], &[A]) -> Result<T>
+distributions dirichlet_lpdf dirichlet_lpdf_alpha_array<T: Real, A: Lift+Copy>(&[T], &[Vec<A>]) -> Result<T>
+distributions dirichlet_lpdf dirichlet_lpdf_array<T: Real, A: Lift+Copy>(&[Vec<T>], &[Vec<A>]) -> Result<T>
+distributions dirichlet_lupdf dirichlet_lupdf<T: Real, A: Lift+Copy>(&[T], &[A]) -> Result<T>
+distributions dirichlet_lupdf dirichlet_lupdf_alpha_array<T: Real, A: Lift+Copy>(&[T], &[Vec<A>]) -> Result<T>
+distributions dirichlet_lupdf dirichlet_lupdf_array<T: Real, A: Lift+Copy>(&[Vec<T>], &[Vec<A>]) -> Result<T>
+distributions dirichlet_multinomial_lpmf dirichlet_multinomial_lpmf<T: Real>(&[i64], &[T]) -> Result<T>
+distributions dirichlet_multinomial_lupmf dirichlet_multinomial_lupmf<T: Real>(&[i64], &[T]) -> Result<T>
+distributions dirichlet_multinomial_rng dirichlet_multinomial_rng<R: Rng+?Sized>(&[f64], i64, &mut R) -> Result<Vec<i64>>
+distributions dirichlet_rng dirichlet_rng<R: Rng+?Sized>(&[f64], &mut R) -> Result<Vec<f64>>
+distributions discrete_range_cdf discrete_range_cdf<Y: IntArg, L: IntArg, U: IntArg>(Y, L, U) -> Result<f64>
+distributions discrete_range_lccdf discrete_range_lccdf<Y: IntArg, L: IntArg, U: IntArg>(Y, L, U) -> Result<f64>
+distributions discrete_range_lcdf discrete_range_lcdf<Y: IntArg, L: IntArg, U: IntArg>(Y, L, U) -> Result<f64>
+distributions discrete_range_lpmf discrete_range_lpmf<Y: IntArg, L: IntArg, U: IntArg>(Y, L, U) -> Result<f64>
+distributions discrete_range_lupmf discrete_range_lupmf<Y: IntArg, L: IntArg, U: IntArg>(Y, L, U) -> Result<f64>
+distributions discrete_range_rng discrete_range_rng<R: Rng+?Sized>(i64, i64, &mut R) -> Result<i64>
+linalg distance distance<T: Real>(&[T], &[T]) -> Result<T>
+autodiff divide divide<T: Real>(T, T) -> T
+autodiff divide divide_int<>(i64, i64) -> Result<i64>
+autodiff dot_product dot_product<T: Real>(&[T], &[T]) -> T
+linalg dot_product dot_product_complex<T: Real>(&[Complex<T>], &[Complex<T>]) -> Result<Complex<T>>
+linalg dot_self dot_self<T: Real>(&[T]) -> T
+linalg dot_self dot_self_complex<T: Real>(&[Complex<T>]) -> Complex<T>
+distributions double_exponential_cdf double_exponential_cdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions double_exponential_lccdf double_exponential_lccdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions double_exponential_lcdf double_exponential_lcdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions double_exponential_lpdf double_exponential_lpdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions double_exponential_lupdf double_exponential_lupdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions double_exponential_rng double_exponential_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+autodiff e e<>() -> f64
+linalg eigendecompose eigendecompose<T: Real>(&Matrix<T>) -> Result<(Matrix<Complex<T>>, Vec<Complex<T>>)>
+linalg eigendecompose eigendecompose_complex<T: Real>(&Matrix<Complex<T>>) -> Result<(Matrix<Complex<T>>, Vec<Complex<T>>)>
+linalg eigendecompose_sym eigendecompose_sym<T: Real>(&Matrix<T>) -> Result<(Matrix<T>, Vec<T>)>
+linalg eigendecompose_sym eigendecompose_sym_complex<T: Real>(&Matrix<Complex<T>>) -> Result<(Matrix<Complex<T>>, Vec<Complex<T>>)>
+linalg eigenvalues eigenvalues<T: Real>(&Matrix<T>) -> Result<Vec<Complex<T>>>
+linalg eigenvalues eigenvalues_complex<T: Real>(&Matrix<Complex<T>>) -> Result<Vec<Complex<T>>>
+linalg eigenvalues_sym eigenvalues_sym<T: Real>(&Matrix<T>) -> Result<Vec<T>>
+linalg eigenvalues_sym eigenvalues_sym_complex<T: Real>(&Matrix<Complex<T>>) -> Result<Vec<Complex<T>>>
+linalg eigenvectors eigenvectors<T: Real>(&Matrix<T>) -> Result<Matrix<Complex<T>>>
+linalg eigenvectors eigenvectors_complex<T: Real>(&Matrix<Complex<T>>) -> Result<Matrix<Complex<T>>>
+linalg eigenvectors_sym eigenvectors_sym<T: Real>(&Matrix<T>) -> Result<Matrix<T>>
+linalg eigenvectors_sym eigenvectors_sym_complex<T: Real>(&Matrix<Complex<T>>) -> Result<Matrix<Complex<T>>>
+linalg elt_divide elt_divide<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+linalg elt_multiply elt_multiply<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+autodiff erf erf<T: Real>(T) -> T
+autodiff erfc erfc<T: Real>(T) -> T
+autodiff exp exp<T: Real>(T) -> T
+autodiff exp2 exp2<T: Real>(T) -> T
+distributions exp_mod_normal_cdf exp_mod_normal_cdf<Y, M, S, L>(Y, M, S, L) -> Result<Promoted<(Y, M, S, L), 4>>
+distributions exp_mod_normal_lccdf exp_mod_normal_lccdf<Y, M, S, L>(Y, M, S, L) -> Result<Promoted<(Y, M, S, L), 4>>
+distributions exp_mod_normal_lcdf exp_mod_normal_lcdf<Y, M, S, L>(Y, M, S, L) -> Result<Promoted<(Y, M, S, L), 4>>
+distributions exp_mod_normal_lpdf exp_mod_normal_lpdf<Y, M, S, L>(Y, M, S, L) -> Result<Promoted<(Y, M, S, L), 4>>
+distributions exp_mod_normal_lupdf exp_mod_normal_lupdf<Y, M, S, L>(Y, M, S, L) -> Result<Promoted<(Y, M, S, L), 4>>
+distributions exp_mod_normal_rng exp_mod_normal_rng<R: Rng+?Sized>(f64, f64, f64, &mut R) -> Result<f64>
+autodiff expm1 expm1<T: Real>(T) -> T
+distributions exponential_cdf exponential_cdf<Y, B>(Y, B) -> Result<Promoted<(Y, B), 2>>
+distributions exponential_lccdf exponential_lccdf<Y, B>(Y, B) -> Result<Promoted<(Y, B), 2>>
+distributions exponential_lcdf exponential_lcdf<Y, B>(Y, B) -> Result<Promoted<(Y, B), 2>>
+distributions exponential_lpdf exponential_lpdf<Y, B>(Y, B) -> Result<Promoted<(Y, B), 2>>
+distributions exponential_lupdf exponential_lupdf<Y, B>(Y, B) -> Result<Promoted<(Y, B), 2>>
+distributions exponential_rng exponential_rng<R: Rng+?Sized>(f64, &mut R) -> Result<f64>
+autodiff falling_factorial falling_factorial<T: Real>(T, i32) -> T
+autodiff fdim fdim<T: Real>(T, T) -> T
+linalg fft fft<T: Real>(&[Complex<T>]) -> Vec<Complex<T>>
+linalg fft2 fft2<T: Real>(&Matrix<Complex<T>>) -> Matrix<Complex<T>>
+autodiff floor floor<T: Real>(T) -> T
+autodiff fma fma<T: Real>(T, T, T) -> T
+autodiff fmax fmax<T: Real>(T, T) -> T
+autodiff fmin fmin<T: Real>(T, T) -> T
+autodiff fmod fmod<T: Real>(T, T) -> T
+distributions frechet_cdf frechet_cdf<Y, A, S>(Y, A, S) -> Result<Promoted<(Y, A, S), 3>>
+distributions frechet_lccdf frechet_lccdf<Y, A, S>(Y, A, S) -> Result<Promoted<(Y, A, S), 3>>
+distributions frechet_lcdf frechet_lcdf<Y, A, S>(Y, A, S) -> Result<Promoted<(Y, A, S), 3>>
+distributions frechet_lpdf frechet_lpdf<Y, A, S>(Y, A, S) -> Result<Promoted<(Y, A, S), 3>>
+distributions frechet_lupdf frechet_lupdf<Y, A, S>(Y, A, S) -> Result<Promoted<(Y, A, S), 3>>
+distributions frechet_rng frechet_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+distributions gamma_cdf gamma_cdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions gamma_lccdf gamma_lccdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions gamma_lcdf gamma_lcdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions gamma_lpdf gamma_lpdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions gamma_lupdf gamma_lupdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+autodiff gamma_p gamma_p<T: Real>(T, T) -> T
+autodiff gamma_q gamma_q<T: Real>(T, T) -> T
+distributions gamma_rng gamma_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+distributions gaussian_dlm_obs_lpdf gaussian_dlm_obs_lpdf<T: Real>(&Matrix<T>, &Matrix<T>, &Matrix<T>, &Matrix<T>, &Matrix<T>, &[T], &Matrix<T>) -> Result<T>
+distributions gaussian_dlm_obs_lpdf gaussian_dlm_obs_lpdf_vector_v<T: Real>(&Matrix<T>, &Matrix<T>, &Matrix<T>, &[T], &Matrix<T>, &[T], &Matrix<T>) -> Result<T>
+distributions gaussian_dlm_obs_lupdf gaussian_dlm_obs_lupdf<T: Real>(&Matrix<T>, &Matrix<T>, &Matrix<T>, &Matrix<T>, &Matrix<T>, &[T], &Matrix<T>) -> Result<T>
+distributions gaussian_dlm_obs_lupdf gaussian_dlm_obs_lupdf_vector_v<T: Real>(&Matrix<T>, &Matrix<T>, &Matrix<T>, &[T], &Matrix<T>, &[T], &Matrix<T>) -> Result<T>
+linalg generalized_inverse generalized_inverse<T: Real>(&Matrix<T>) -> Result<Matrix<T>>
+solvers generate_laplace_options generate_laplace_options<>(usize) -> LaplaceOptions
+autodiff get_imag get_imag<T: Real>(Complex<T>) -> T
+autodiff get_real get_real<T: Real>(Complex<T>) -> T
+linalg gp_dot_prod_cov gp_dot_prod_cov<T: Real>(&[Vec<T>], T) -> Result<Matrix<T>>
+linalg gp_dot_prod_cov gp_dot_prod_cov_cross<T: Real>(&[Vec<T>], &[Vec<T>], T) -> Result<Matrix<T>>
+linalg gp_exp_quad_cov gp_exp_quad_cov<T: Real>(&[Vec<T>], T, T) -> Result<Matrix<T>>
+linalg gp_exp_quad_cov gp_exp_quad_cov_ard<T: Real>(&[Vec<T>], T, &[T]) -> Result<Matrix<T>>
+linalg gp_exp_quad_cov gp_exp_quad_cov_ard_cross<T: Real>(&[Vec<T>], &[Vec<T>], T, &[T]) -> Result<Matrix<T>>
+linalg gp_exp_quad_cov gp_exp_quad_cov_cross<T: Real>(&[Vec<T>], &[Vec<T>], T, T) -> Result<Matrix<T>>
+linalg gp_exponential_cov gp_exponential_cov<T: Real>(&[Vec<T>], T, T) -> Result<Matrix<T>>
+linalg gp_exponential_cov gp_exponential_cov_ard<T: Real>(&[Vec<T>], T, &[T]) -> Result<Matrix<T>>
+linalg gp_exponential_cov gp_exponential_cov_ard_cross<T: Real>(&[Vec<T>], &[Vec<T>], T, &[T]) -> Result<Matrix<T>>
+linalg gp_exponential_cov gp_exponential_cov_cross<T: Real>(&[Vec<T>], &[Vec<T>], T, T) -> Result<Matrix<T>>
+linalg gp_matern32_cov gp_matern32_cov<T: Real>(&[Vec<T>], T, T) -> Result<Matrix<T>>
+linalg gp_matern32_cov gp_matern32_cov_ard<T: Real>(&[Vec<T>], T, &[T]) -> Result<Matrix<T>>
+linalg gp_matern32_cov gp_matern32_cov_ard_cross<T: Real>(&[Vec<T>], &[Vec<T>], T, &[T]) -> Result<Matrix<T>>
+linalg gp_matern32_cov gp_matern32_cov_cross<T: Real>(&[Vec<T>], &[Vec<T>], T, T) -> Result<Matrix<T>>
+linalg gp_matern52_cov gp_matern52_cov<T: Real>(&[Vec<T>], T, T) -> Result<Matrix<T>>
+linalg gp_matern52_cov gp_matern52_cov_ard<T: Real>(&[Vec<T>], T, &[T]) -> Result<Matrix<T>>
+linalg gp_matern52_cov gp_matern52_cov_ard_cross<T: Real>(&[Vec<T>], &[Vec<T>], T, &[T]) -> Result<Matrix<T>>
+linalg gp_matern52_cov gp_matern52_cov_cross<T: Real>(&[Vec<T>], &[Vec<T>], T, T) -> Result<Matrix<T>>
+linalg gp_periodic_cov gp_periodic_cov<T: Real>(&[Vec<T>], T, T, T) -> Result<Matrix<T>>
+linalg gp_periodic_cov gp_periodic_cov_cross<T: Real>(&[Vec<T>], &[Vec<T>], T, T, T) -> Result<Matrix<T>>
+distributions gumbel_cdf gumbel_cdf<Y, M, B>(Y, M, B) -> Result<Promoted<(Y, M, B), 3>>
+distributions gumbel_lccdf gumbel_lccdf<Y, M, B>(Y, M, B) -> Result<Promoted<(Y, M, B), 3>>
+distributions gumbel_lcdf gumbel_lcdf<Y, M, B>(Y, M, B) -> Result<Promoted<(Y, M, B), 3>>
+distributions gumbel_lpdf gumbel_lpdf<Y, M, B>(Y, M, B) -> Result<Promoted<(Y, M, B), 3>>
+distributions gumbel_lupdf gumbel_lupdf<Y, M, B>(Y, M, B) -> Result<Promoted<(Y, M, B), 3>>
+distributions gumbel_rng gumbel_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+linalg head head<T: Clone>(&[T], usize) -> Result<Vec<T>>
+distributions hmm_hidden_state_prob hmm_hidden_state_prob<>(&Matrix<f64>, &Matrix<f64>, &[f64]) -> Result<Matrix<f64>>
+distributions hmm_latent_rng hmm_latent_rng<R: Rng+?Sized>(&Matrix<f64>, &Matrix<f64>, &[f64], &mut R) -> Result<Vec<i64>>
+distributions hmm_marginal hmm_marginal<T: Real>(&Matrix<T>, &Matrix<T>, &[T]) -> Result<T>
+autodiff hypergeometric_1F0 hypergeometric_1F0<T: Real>(T, T) -> Result<T>
+autodiff hypergeometric_2F1 hypergeometric_2F1<T: Real>(T, T, T, T) -> T
+autodiff hypergeometric_3F2 hypergeometric_3F2<T: Real>([T; 3], [T; 2], T) -> T
+distributions hypergeometric_lpmf hypergeometric_lpmf<N: IntArg, D: IntArg, A: IntArg, B: IntArg>(N, D, A, B) -> Result<f64>
+distributions hypergeometric_lupmf hypergeometric_lupmf<N: IntArg, D: IntArg, A: IntArg, B: IntArg>(N, D, A, B) -> Result<f64>
+autodiff hypergeometric_pFq hypergeometric_pFq<T: Real>(&[T], &[T], T) -> T
+distributions hypergeometric_rng hypergeometric_rng<R: Rng+?Sized>(i64, i64, i64, &mut R) -> Result<i64>
+autodiff hypot hypot<T: Real>(T, T) -> T
+linalg identity_matrix identity_matrix<T: Real>(usize) -> Matrix<T>
+autodiff inc_beta inc_beta<T: Real>(T, T, T) -> T
+autodiff int_step int_step<T: Real>(T) -> i32
+solvers integrate_1d integrate_1d<T: Real, F: Integrand>(&F, T, T, &[T], f64) -> Result<T>
+solvers integrate_ode_adams integrate_ode_adams<T: Real, F: OdeSystemData>(&F, &[T], f64, &[f64], &[T], &[f64], &[i64], Option<&OdeOptions>) -> Result<Vec<Vec<T>>>
+solvers integrate_ode_bdf integrate_ode_bdf<T: Real, F: OdeSystemData>(&F, &[T], f64, &[f64], &[T], &[f64], &[i64], Option<&OdeOptions>) -> Result<Vec<Vec<T>>>
+solvers integrate_ode_rk45 integrate_ode_rk45<T: Real, F: OdeSystemData>(&F, &[T], f64, &[f64], &[T], &[f64], &[i64], Option<&OdeOptions>) -> Result<Vec<Vec<T>>>
+autodiff inv inv<T: Real>(T) -> T
+autodiff inv_Phi inv_Phi<T: Real>(T) -> T
+distributions inv_chi_square_cdf inv_chi_square_cdf<Y, N>(Y, N) -> Result<Promoted<(Y, N), 2>>
+distributions inv_chi_square_lccdf inv_chi_square_lccdf<Y, N>(Y, N) -> Result<Promoted<(Y, N), 2>>
+distributions inv_chi_square_lcdf inv_chi_square_lcdf<Y, N>(Y, N) -> Result<Promoted<(Y, N), 2>>
+distributions inv_chi_square_lpdf inv_chi_square_lpdf<Y, N>(Y, N) -> Result<Promoted<(Y, N), 2>>
+distributions inv_chi_square_lupdf inv_chi_square_lupdf<Y, N>(Y, N) -> Result<Promoted<(Y, N), 2>>
+distributions inv_chi_square_rng inv_chi_square_rng<R: Rng+?Sized>(f64, &mut R) -> Result<f64>
+autodiff inv_cloglog inv_cloglog<T: Real>(T) -> T
+autodiff inv_erfc inv_erfc<T: Real>(T) -> T
+linalg inv_fft inv_fft<T: Real>(&[Complex<T>]) -> Vec<Complex<T>>
+linalg inv_fft2 inv_fft2<T: Real>(&Matrix<Complex<T>>) -> Matrix<Complex<T>>
+distributions inv_gamma_cdf inv_gamma_cdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions inv_gamma_lccdf inv_gamma_lccdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions inv_gamma_lcdf inv_gamma_lcdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions inv_gamma_lpdf inv_gamma_lpdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions inv_gamma_lupdf inv_gamma_lupdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions inv_gamma_rng inv_gamma_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+autodiff inv_inc_beta inv_inc_beta<T: Real>(T, T, T) -> T
+autodiff inv_logit inv_logit<T: Real>(T) -> T
+autodiff inv_sqrt inv_sqrt<T: Real>(T) -> T
+autodiff inv_square inv_square<T: Real>(T) -> T
+distributions inv_wishart_cholesky_lpdf inv_wishart_cholesky_lpdf<T: Real, N: Lift>(&Matrix<T>, N, &Matrix<T>) -> Result<T>
+distributions inv_wishart_cholesky_lupdf inv_wishart_cholesky_lupdf<T: Real, N: Lift>(&Matrix<T>, N, &Matrix<T>) -> Result<T>
+distributions inv_wishart_cholesky_rng inv_wishart_cholesky_rng<R: Rng+?Sized>(f64, &Matrix<f64>, &mut R) -> Result<Matrix<f64>>
+distributions inv_wishart_lpdf inv_wishart_lpdf<T: Real, N: Lift>(&Matrix<T>, N, &Matrix<T>) -> Result<T>
+distributions inv_wishart_lupdf inv_wishart_lupdf<T: Real, N: Lift>(&Matrix<T>, N, &Matrix<T>) -> Result<T>
+distributions inv_wishart_rng inv_wishart_rng<R: Rng+?Sized>(f64, &Matrix<f64>, &mut R) -> Result<Matrix<f64>>
+linalg inverse inverse<T: Real>(&Matrix<T>) -> Result<Matrix<T>>
+linalg inverse_spd inverse_spd<T: Real>(&Matrix<T>) -> Result<Matrix<T>>
+autodiff is_inf is_inf<X: Primal>(X) -> bool
+autodiff is_nan is_nan<X: Primal>(X) -> bool
+autodiff lambert_w0 lambert_w0<T: Real>(T) -> T
+autodiff lambert_wm1 lambert_wm1<T: Real>(T) -> T
+autodiff lbeta lbeta<T: Real>(T, T) -> T
+autodiff lchoose lchoose<T: Real>(T, T) -> T
+autodiff ldexp ldexp<T: Real>(T, i32) -> T
+autodiff lgamma lgamma<T: Real>(T) -> T
+linalg linspaced_array linspaced_array<T: Real>(usize, f64, f64) -> Result<Vec<T>>
+linalg linspaced_int_array linspaced_int_array<>(usize, i64, i64) -> Result<Vec<i64>>
+linalg linspaced_row_vector linspaced_row_vector<T: Real>(usize, f64, f64) -> Result<Vec<T>>
+linalg linspaced_vector linspaced_vector<T: Real>(usize, f64, f64) -> Result<Vec<T>>
+distributions lkj_corr_cholesky_lpdf lkj_corr_cholesky_lpdf<T: Real, E: Lift>(&Matrix<T>, E) -> Result<T>
+distributions lkj_corr_cholesky_lupdf lkj_corr_cholesky_lupdf<T: Real, E: Lift>(&Matrix<T>, E) -> Result<T>
+distributions lkj_corr_cholesky_rng lkj_corr_cholesky_rng<R: Rng+?Sized>(usize, f64, &mut R) -> Result<Matrix<f64>>
+distributions lkj_corr_lpdf lkj_corr_lpdf<T: Real, E: Lift>(&Matrix<T>, E) -> Result<T>
+distributions lkj_corr_lupdf lkj_corr_lupdf<T: Real, E: Lift>(&Matrix<T>, E) -> Result<T>
+distributions lkj_corr_rng lkj_corr_rng<R: Rng+?Sized>(usize, f64, &mut R) -> Result<Matrix<f64>>
+distributions lkj_cov_lpdf lkj_cov_lpdf<T: Real, M: Lift+Copy, S: Lift+Copy, E: Lift>(&Matrix<T>, &[M], &[S], E) -> Result<T>
+distributions lkj_cov_lupdf lkj_cov_lupdf<T: Real, M: Lift+Copy, S: Lift+Copy, E: Lift>(&Matrix<T>, &[M], &[S], E) -> Result<T>
+autodiff lmgamma lmgamma<T: Real>(i32, T) -> T
+autodiff lmultiply lmultiply<T: Real>(T, T) -> T
+autodiff log log<T: Real>(T) -> T
+autodiff log10 log10<T: Real>(T) -> T
+autodiff log1m log1m<T: Real>(T) -> T
+autodiff log1m_exp log1m_exp<T: Real>(T) -> T
+autodiff log1m_inv_logit log1m_inv_logit<T: Real>(T) -> T
+autodiff log1p log1p<T: Real>(T) -> T
+autodiff log1p_exp log1p_exp<T: Real>(T) -> T
+autodiff log2 log2<T: Real>(T) -> T
+linalg log_determinant log_determinant<T: Real>(&Matrix<T>) -> Result<T>
+linalg log_determinant_spd log_determinant_spd<T: Real>(&Matrix<T>) -> Result<T>
+autodiff log_diff_exp log_diff_exp<T: Real>(T, T) -> T
+autodiff log_falling_factorial log_falling_factorial<T: Real>(T, T) -> T
+autodiff log_inv_logit log_inv_logit<T: Real>(T) -> T
+autodiff log_inv_logit_diff log_inv_logit_diff<T: Real>(T, T) -> T
+autodiff log_mix log_mix<T: Real>(T, T, T) -> T
+autodiff log_mix log_mix_array<T: Real>(&[T], &[Vec<T>]) -> T
+autodiff log_mix log_mix_slice<T: Real>(&[T], &[T]) -> T
+autodiff log_modified_bessel_first_kind log_modified_bessel_first_kind<T: Real>(T, T) -> T
+autodiff log_rising_factorial log_rising_factorial<T: Real>(T, T) -> T
+autodiff log_softmax log_softmax<T: Real>(&[T]) -> Vec<T>
+autodiff log_sum_exp log_sum_exp<T: Real>(T, T) -> T
+linalg log_sum_exp log_sum_exp_matrix<T: Real>(&Matrix<T>) -> T
+autodiff log_sum_exp log_sum_exp_slice<T: Real>(&[T]) -> T
+autodiff logical_and logical_and<X: Primal, Y: Primal>(X, Y) -> bool
+autodiff logical_eq logical_eq<X: Primal, Y: Primal>(X, Y) -> bool
+autodiff logical_gt logical_gt<X: Primal, Y: Primal>(X, Y) -> bool
+autodiff logical_gte logical_gte<X: Primal, Y: Primal>(X, Y) -> bool
+autodiff logical_lt logical_lt<X: Primal, Y: Primal>(X, Y) -> bool
+autodiff logical_lte logical_lte<X: Primal, Y: Primal>(X, Y) -> bool
+autodiff logical_negation logical_negation<X: Primal>(X) -> bool
+autodiff logical_neq logical_neq<X: Primal, Y: Primal>(X, Y) -> bool
+autodiff logical_or logical_or<X: Primal, Y: Primal>(X, Y) -> bool
+distributions logistic_cdf logistic_cdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions logistic_lccdf logistic_lccdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions logistic_lcdf logistic_lcdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions logistic_lpdf logistic_lpdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions logistic_lupdf logistic_lupdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions logistic_rng logistic_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+autodiff logit logit<T: Real>(T) -> T
+distributions loglogistic_cdf loglogistic_cdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions loglogistic_lpdf loglogistic_lpdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions loglogistic_lupdf loglogistic_lupdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions loglogistic_rng loglogistic_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+distributions lognormal_cdf lognormal_cdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions lognormal_lccdf lognormal_lccdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions lognormal_lcdf lognormal_lcdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions lognormal_lpdf lognormal_lpdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions lognormal_lupdf lognormal_lupdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions lognormal_rng lognormal_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+autodiff machine_precision machine_precision<>() -> f64
+solvers map_rect map_rect<T: Real, impl FnMut(&[T], &[T], &[f64], &[i64]) -> Result<Vec<T>>: FnMut>(impl FnMut, &[T], &[Vec<T>], &[Vec<f64>], &[Vec<i64>]) -> Result<Vec<T>>
+linalg matrix_exp matrix_exp<T: Real>(&Matrix<T>) -> Result<Matrix<T>>
+linalg matrix_exp_multiply matrix_exp_multiply<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+linalg matrix_power matrix_power<T: Real>(&Matrix<T>, i32) -> Result<Matrix<T>>
+linalg max max<T: Real>(&[T]) -> T
+linalg max max_int<>(&[i64]) -> Result<i64>
+linalg mdivide_left mdivide_left<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+linalg mdivide_left_spd mdivide_left_spd<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+linalg mdivide_left_spd mdivide_left_spd_vector<T: Real>(&Matrix<T>, &[T]) -> Result<Vec<T>>
+linalg mdivide_left_tri_low mdivide_left_tri_low<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+linalg mdivide_left_tri_low mdivide_left_tri_low_vector<T: Real>(&Matrix<T>, &[T]) -> Result<Vec<T>>
+linalg mdivide_left mdivide_left_vector<T: Real>(&Matrix<T>, &[T]) -> Result<Vec<T>>
+linalg mdivide_right mdivide_right<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+linalg mdivide_right mdivide_right_complex<T: Real>(&Matrix<Complex<T>>, &Matrix<Complex<T>>) -> Result<Matrix<Complex<T>>>
+linalg mdivide_right mdivide_right_row_vector<T: Real>(&[T], &Matrix<T>) -> Result<Vec<T>>
+linalg mdivide_right_spd mdivide_right_spd<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+linalg mdivide_right_spd mdivide_right_spd_row_vector<T: Real>(&[T], &Matrix<T>) -> Result<Vec<T>>
+linalg mdivide_right_tri_low mdivide_right_tri_low<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+linalg mdivide_right_tri_low mdivide_right_tri_low_row_vector<T: Real>(&[T], &Matrix<T>) -> Result<Vec<T>>
+linalg mean mean<T: Real>(&[T]) -> Result<T>
+linalg min min<T: Real>(&[T]) -> T
+linalg min min_int<>(&[i64]) -> Result<i64>
+autodiff minus minus<T: Neg>(T) -> T
+autodiff modified_bessel_first_kind modified_bessel_first_kind<T: Real>(i32, T) -> T
+autodiff modified_bessel_second_kind modified_bessel_second_kind<T: Real>(i32, T) -> T
+autodiff modulus modulus<>(i64, i64) -> Result<i64>
+distributions multi_gp_cholesky_lpdf multi_gp_cholesky_lpdf<T: Real, W: Lift+Copy>(&Matrix<T>, &Matrix<T>, &[W]) -> Result<T>
+distributions multi_gp_cholesky_lupdf multi_gp_cholesky_lupdf<T: Real, W: Lift+Copy>(&Matrix<T>, &Matrix<T>, &[W]) -> Result<T>
+distributions multi_gp_lpdf multi_gp_lpdf<T: Real, W: Lift+Copy>(&Matrix<T>, &Matrix<T>, &[W]) -> Result<T>
+distributions multi_gp_lupdf multi_gp_lupdf<T: Real, W: Lift+Copy>(&Matrix<T>, &Matrix<T>, &[W]) -> Result<T>
+distributions multi_normal_cholesky_lpdf multi_normal_cholesky_lpdf<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Y], &[M], &Matrix<T>) -> Result<T>
+distributions multi_normal_cholesky_lpdf multi_normal_cholesky_lpdf_array<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Vec<Y>], &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_normal_cholesky_lpdf multi_normal_cholesky_lpdf_mu_array<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Y], &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_normal_cholesky_lupdf multi_normal_cholesky_lupdf<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Y], &[M], &Matrix<T>) -> Result<T>
+distributions multi_normal_cholesky_lupdf multi_normal_cholesky_lupdf_array<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Vec<Y>], &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_normal_cholesky_lupdf multi_normal_cholesky_lupdf_mu_array<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Y], &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_normal_cholesky_rng multi_normal_cholesky_rng<R: Rng+?Sized>(&[f64], &Matrix<f64>, &mut R) -> Result<Vec<f64>>
+distributions multi_normal_cholesky_rng multi_normal_cholesky_rng_array<R: Rng+?Sized>(&[Vec<f64>], &Matrix<f64>, &mut R) -> Result<Vec<Vec<f64>>>
+distributions multi_normal_lpdf multi_normal_lpdf<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Y], &[M], &Matrix<T>) -> Result<T>
+distributions multi_normal_lpdf multi_normal_lpdf_array<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Vec<Y>], &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_normal_lpdf multi_normal_lpdf_mu_array<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Y], &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_normal_lupdf multi_normal_lupdf<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Y], &[M], &Matrix<T>) -> Result<T>
+distributions multi_normal_lupdf multi_normal_lupdf_array<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Vec<Y>], &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_normal_lupdf multi_normal_lupdf_mu_array<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Y], &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_normal_prec_lpdf multi_normal_prec_lpdf<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Y], &[M], &Matrix<T>) -> Result<T>
+distributions multi_normal_prec_lpdf multi_normal_prec_lpdf_array<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Vec<Y>], &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_normal_prec_lpdf multi_normal_prec_lpdf_mu_array<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Y], &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_normal_prec_lupdf multi_normal_prec_lupdf<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Y], &[M], &Matrix<T>) -> Result<T>
+distributions multi_normal_prec_lupdf multi_normal_prec_lupdf_array<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Vec<Y>], &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_normal_prec_lupdf multi_normal_prec_lupdf_mu_array<T: Real, Y: Lift+Copy, M: Lift+Copy>(&[Y], &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_normal_rng multi_normal_rng<R: Rng+?Sized>(&[f64], &Matrix<f64>, &mut R) -> Result<Vec<f64>>
+distributions multi_normal_rng multi_normal_rng_array<R: Rng+?Sized>(&[Vec<f64>], &Matrix<f64>, &mut R) -> Result<Vec<Vec<f64>>>
+distributions multi_student_t_cholesky_lpdf multi_student_t_cholesky_lpdf<T: Real, Y: Lift+Copy, N: Lift, M: Lift+Copy>(&[Y], N, &[M], &Matrix<T>) -> Result<T>
+distributions multi_student_t_cholesky_lpdf multi_student_t_cholesky_lpdf_array<T: Real, Y: Lift+Copy, N: Lift, M: Lift+Copy>(&[Vec<Y>], N, &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_student_t_cholesky_lpdf multi_student_t_cholesky_lpdf_mu_array<T: Real, Y: Lift+Copy, N: Lift, M: Lift+Copy>(&[Y], N, &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_student_t_cholesky_lupdf multi_student_t_cholesky_lupdf<T: Real, Y: Lift+Copy, N: Lift, M: Lift+Copy>(&[Y], N, &[M], &Matrix<T>) -> Result<T>
+distributions multi_student_t_cholesky_lupdf multi_student_t_cholesky_lupdf_array<T: Real, Y: Lift+Copy, N: Lift, M: Lift+Copy>(&[Vec<Y>], N, &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_student_t_cholesky_lupdf multi_student_t_cholesky_lupdf_mu_array<T: Real, Y: Lift+Copy, N: Lift, M: Lift+Copy>(&[Y], N, &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_student_t_cholesky_rng multi_student_t_cholesky_rng<R: Rng+?Sized>(f64, &[f64], &Matrix<f64>, &mut R) -> Result<Vec<f64>>
+distributions multi_student_t_cholesky_rng multi_student_t_cholesky_rng_array<R: Rng+?Sized>(f64, &[Vec<f64>], &Matrix<f64>, &mut R) -> Result<Vec<Vec<f64>>>
+distributions multi_student_t_lpdf multi_student_t_lpdf<T: Real, Y: Lift+Copy, N: Lift, M: Lift+Copy>(&[Y], N, &[M], &Matrix<T>) -> Result<T>
+distributions multi_student_t_lpdf multi_student_t_lpdf_array<T: Real, Y: Lift+Copy, N: Lift, M: Lift+Copy>(&[Vec<Y>], N, &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_student_t_lpdf multi_student_t_lpdf_mu_array<T: Real, Y: Lift+Copy, N: Lift, M: Lift+Copy>(&[Y], N, &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_student_t_lupdf multi_student_t_lupdf<T: Real, Y: Lift+Copy, N: Lift, M: Lift+Copy>(&[Y], N, &[M], &Matrix<T>) -> Result<T>
+distributions multi_student_t_lupdf multi_student_t_lupdf_array<T: Real, Y: Lift+Copy, N: Lift, M: Lift+Copy>(&[Vec<Y>], N, &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_student_t_lupdf multi_student_t_lupdf_mu_array<T: Real, Y: Lift+Copy, N: Lift, M: Lift+Copy>(&[Y], N, &[Vec<M>], &Matrix<T>) -> Result<T>
+distributions multi_student_t_rng multi_student_t_rng<R: Rng+?Sized>(f64, &[f64], &Matrix<f64>, &mut R) -> Result<Vec<f64>>
+distributions multi_student_t_rng multi_student_t_rng_array<R: Rng+?Sized>(f64, &[Vec<f64>], &Matrix<f64>, &mut R) -> Result<Vec<Vec<f64>>>
+distributions multinomial_logit_lpmf multinomial_logit_lpmf<T: Real>(&[i64], &[T]) -> Result<T>
+distributions multinomial_logit_lupmf multinomial_logit_lupmf<T: Real>(&[i64], &[T]) -> Result<T>
+distributions multinomial_logit_rng multinomial_logit_rng<R: Rng+?Sized>(&[f64], i64, &mut R) -> Result<Vec<i64>>
+distributions multinomial_lpmf multinomial_lpmf<T: Real>(&[i64], &[T]) -> Result<T>
+distributions multinomial_lupmf multinomial_lupmf<T: Real>(&[i64], &[T]) -> Result<T>
+distributions multinomial_rng multinomial_rng<R: Rng+?Sized>(&[f64], i64, &mut R) -> Result<Vec<i64>>
+linalg multiply multiply<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+linalg multiply multiply_complex<R: Ring>(&Matrix<R>, &Matrix<R>) -> Result<Matrix<R>>
+linalg multiply_lower_tri_self_transpose multiply_lower_tri_self_transpose<T: Real>(&Matrix<T>) -> Result<Matrix<T>>
+linalg multiply multiply_outer<R: Ring>(&[R], &[R]) -> Matrix<R>
+linalg multiply multiply_row_vector<T: Real>(&[T], &Matrix<T>) -> Result<Vec<T>>
+linalg multiply multiply_row_vector_complex<R: Ring>(&[R], &Matrix<R>) -> Result<Vec<R>>
+linalg multiply multiply_vector<T: Real>(&Matrix<T>, &[T]) -> Result<Vec<T>>
+linalg multiply multiply_vector_complex<R: Ring>(&Matrix<R>, &[R]) -> Result<Vec<R>>
+distributions neg_binomial_2_cdf neg_binomial_2_cdf<N: IntArg, M, P>(N, M, P) -> Result<Promoted<(M, P), 2>>
+distributions neg_binomial_2_lccdf neg_binomial_2_lccdf<N: IntArg, M, P>(N, M, P) -> Result<Promoted<(M, P), 2>>
+distributions neg_binomial_2_lcdf neg_binomial_2_lcdf<N: IntArg, M, P>(N, M, P) -> Result<Promoted<(M, P), 2>>
+distributions neg_binomial_2_log_glm_lpmf neg_binomial_2_log_glm_lpmf<N: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real, P: Arg>(N, &Matrix<X>, A, &[B], P) -> Result<T>
+distributions neg_binomial_2_log_glm_lpmf neg_binomial_2_log_glm_lpmf_row<N: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real, P: Arg>(N, &[X], A, &[B], P) -> Result<T>
+distributions neg_binomial_2_log_glm_lupmf neg_binomial_2_log_glm_lupmf<N: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real, P: Arg>(N, &Matrix<X>, A, &[B], P) -> Result<T>
+distributions neg_binomial_2_log_glm_lupmf neg_binomial_2_log_glm_lupmf_row<N: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real, P: Arg>(N, &[X], A, &[B], P) -> Result<T>
+distributions neg_binomial_2_log_lpmf neg_binomial_2_log_lpmf<N: IntArg, E, P>(N, E, P) -> Result<Promoted<(E, P), 2>>
+distributions neg_binomial_2_log_lupmf neg_binomial_2_log_lupmf<N: IntArg, E, P>(N, E, P) -> Result<Promoted<(E, P), 2>>
+distributions neg_binomial_2_log_rng neg_binomial_2_log_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<i64>
+distributions neg_binomial_2_lpmf neg_binomial_2_lpmf<N: IntArg, M, P>(N, M, P) -> Result<Promoted<(M, P), 2>>
+distributions neg_binomial_2_lupmf neg_binomial_2_lupmf<N: IntArg, M, P>(N, M, P) -> Result<Promoted<(M, P), 2>>
+distributions neg_binomial_2_rng neg_binomial_2_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<i64>
+distributions neg_binomial_cdf neg_binomial_cdf<N: IntArg, A, B>(N, A, B) -> Result<Promoted<(A, B), 2>>
+distributions neg_binomial_lccdf neg_binomial_lccdf<N: IntArg, A, B>(N, A, B) -> Result<Promoted<(A, B), 2>>
+distributions neg_binomial_lcdf neg_binomial_lcdf<N: IntArg, A, B>(N, A, B) -> Result<Promoted<(A, B), 2>>
+distributions neg_binomial_lpmf neg_binomial_lpmf<N: IntArg, A, B>(N, A, B) -> Result<Promoted<(A, B), 2>>
+distributions neg_binomial_lupmf neg_binomial_lupmf<N: IntArg, A, B>(N, A, B) -> Result<Promoted<(A, B), 2>>
+distributions neg_binomial_rng neg_binomial_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<i64>
+autodiff negative_infinity negative_infinity<>() -> f64
+autodiff norm norm<T: Real>(Complex<T>) -> T
+linalg norm1 norm1<T: Real>(&[T]) -> T
+linalg norm2 norm2<T: Real>(&[T]) -> T
+distributions normal_cdf normal_cdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions normal_id_glm_lpdf normal_id_glm_lpdf<Y: Lift+Copy, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real, S: Arg>(&[Y], &Matrix<X>, A, &[B], S) -> Result<T>
+distributions normal_id_glm_lpdf normal_id_glm_lpdf_row<Y: Arg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real, S: Arg>(Y, &[X], A, &[B], S) -> Result<T>
+distributions normal_id_glm_lpdf normal_id_glm_lpdf_scalar_y<Y: Lift+Copy, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real, S: Arg>(Y, &Matrix<X>, A, &[B], S) -> Result<T>
+distributions normal_id_glm_lpdf normal_id_glm_lpdf_vector_x<Y: Arg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real, S: Arg>(Y, &[X], A, &[B], S) -> Result<T>
+distributions normal_id_glm_lupdf normal_id_glm_lupdf<Y: Lift+Copy, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real, S: Arg>(&[Y], &Matrix<X>, A, &[B], S) -> Result<T>
+distributions normal_id_glm_lupdf normal_id_glm_lupdf_row<Y: Arg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real, S: Arg>(Y, &[X], A, &[B], S) -> Result<T>
+distributions normal_id_glm_lupdf normal_id_glm_lupdf_scalar_y<Y: Lift+Copy, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real, S: Arg>(Y, &Matrix<X>, A, &[B], S) -> Result<T>
+distributions normal_id_glm_lupdf normal_id_glm_lupdf_vector_x<Y: Arg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real, S: Arg>(Y, &[X], A, &[B], S) -> Result<T>
+distributions normal_lccdf normal_lccdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions normal_lcdf normal_lcdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions normal_lpdf normal_lpdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions normal_lupdf normal_lupdf<Y, M, S>(Y, M, S) -> Result<Promoted<(Y, M, S), 3>>
+distributions normal_rng normal_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+autodiff not_a_number not_a_number<>() -> f64
+linalg num_elements num_elements<D: Dims+?Sized>(&D) -> usize
+transforms offset_multiplier_constrain offset_multiplier_constrain<T: Real, M: Lift, S: Lift>(T, M, S) -> Result<T>
+linalg one_hot_array one_hot_array<T: Real>(usize, usize) -> Result<Vec<T>>
+linalg one_hot_int_array one_hot_int_array<>(usize, usize) -> Result<Vec<i64>>
+linalg one_hot_row_vector one_hot_row_vector<T: Real>(usize, usize) -> Result<Vec<T>>
+linalg one_hot_vector one_hot_vector<T: Real>(usize, usize) -> Result<Vec<T>>
+linalg ones_array ones_array<T: Real>(usize) -> Vec<T>
+linalg ones_int_array ones_int_array<>(usize) -> Vec<i64>
+linalg ones_row_vector ones_row_vector<T: Real>(usize) -> Vec<T>
+linalg ones_vector ones_vector<T: Real>(usize) -> Vec<T>
+transforms ordered_constrain ordered_constrain<T: Real>(&[T]) -> Vec<T>
+distributions ordered_logistic_glm_lpmf ordered_logistic_glm_lpmf<N: IntArg, X: Lift+Copy, B: Lift+Copy, T: Real, C: Lift+Copy>(N, &Matrix<X>, &[B], &[C]) -> Result<T>
+distributions ordered_logistic_glm_lpmf ordered_logistic_glm_lpmf_row<N: IntArg, X: Lift+Copy, B: Lift+Copy, T: Real, C: Lift+Copy>(N, &[X], &[B], &[C]) -> Result<T>
+distributions ordered_logistic_glm_lupmf ordered_logistic_glm_lupmf<N: IntArg, X: Lift+Copy, B: Lift+Copy, T: Real, C: Lift+Copy>(N, &Matrix<X>, &[B], &[C]) -> Result<T>
+distributions ordered_logistic_glm_lupmf ordered_logistic_glm_lupmf_row<N: IntArg, X: Lift+Copy, B: Lift+Copy, T: Real, C: Lift+Copy>(N, &[X], &[B], &[C]) -> Result<T>
+distributions ordered_logistic_lpmf ordered_logistic_lpmf<N: IntArg, E: Arg, T: Real>(N, E, &[T]) -> Result<T>
+distributions ordered_logistic_lpmf ordered_logistic_lpmf_array<E: Arg, T: Real>(&[i64], E, &[Vec<T>]) -> Result<T>
+distributions ordered_logistic_lupmf ordered_logistic_lupmf<N: IntArg, E: Arg, T: Real>(N, E, &[T]) -> Result<T>
+distributions ordered_logistic_lupmf ordered_logistic_lupmf_array<E: Arg, T: Real>(&[i64], E, &[Vec<T>]) -> Result<T>
+distributions ordered_logistic_rng ordered_logistic_rng<R: Rng+?Sized>(f64, &[f64], &mut R) -> Result<i64>
+distributions ordered_probit_lpmf ordered_probit_lpmf<N: IntArg, E: Arg, T: Real>(N, E, &[T]) -> Result<T>
+distributions ordered_probit_lpmf ordered_probit_lpmf_array<E: Arg, T: Real>(&[i64], E, &[Vec<T>]) -> Result<T>
+distributions ordered_probit_lupmf ordered_probit_lupmf<N: IntArg, E: Arg, T: Real>(N, E, &[T]) -> Result<T>
+distributions ordered_probit_lupmf ordered_probit_lupmf_array<E: Arg, T: Real>(&[i64], E, &[Vec<T>]) -> Result<T>
+distributions ordered_probit_rng ordered_probit_rng<R: Rng+?Sized>(f64, &[f64], &mut R) -> Result<i64>
+autodiff owens_t owens_t<T: Real>(T, T) -> T
+distributions pareto_cdf pareto_cdf<Y, M, A>(Y, M, A) -> Result<Promoted<(Y, M, A), 3>>
+distributions pareto_lccdf pareto_lccdf<Y, M, A>(Y, M, A) -> Result<Promoted<(Y, M, A), 3>>
+distributions pareto_lcdf pareto_lcdf<Y, M, A>(Y, M, A) -> Result<Promoted<(Y, M, A), 3>>
+distributions pareto_lpdf pareto_lpdf<Y, M, A>(Y, M, A) -> Result<Promoted<(Y, M, A), 3>>
+distributions pareto_lupdf pareto_lupdf<Y, M, A>(Y, M, A) -> Result<Promoted<(Y, M, A), 3>>
+distributions pareto_rng pareto_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+distributions pareto_type_2_cdf pareto_type_2_cdf<Y, M, L, A>(Y, M, L, A) -> Result<Promoted<(Y, M, L, A), 4>>
+distributions pareto_type_2_lccdf pareto_type_2_lccdf<Y, M, L, A>(Y, M, L, A) -> Result<Promoted<(Y, M, L, A), 4>>
+distributions pareto_type_2_lcdf pareto_type_2_lcdf<Y, M, L, A>(Y, M, L, A) -> Result<Promoted<(Y, M, L, A), 4>>
+distributions pareto_type_2_lpdf pareto_type_2_lpdf<Y, M, L, A>(Y, M, L, A) -> Result<Promoted<(Y, M, L, A), 4>>
+distributions pareto_type_2_lupdf pareto_type_2_lupdf<Y, M, L, A>(Y, M, L, A) -> Result<Promoted<(Y, M, L, A), 4>>
+distributions pareto_type_2_rng pareto_type_2_rng<R: Rng+?Sized>(f64, f64, f64, &mut R) -> Result<f64>
+autodiff pi pi<>() -> f64
+autodiff plus plus<T>(T) -> T
+distributions poisson_binomial_cdf poisson_binomial_cdf<N: IntArg, T: Real>(N, &[T]) -> Result<T>
+distributions poisson_binomial_lccdf poisson_binomial_lccdf<N: IntArg, T: Real>(N, &[T]) -> Result<T>
+distributions poisson_binomial_lcdf poisson_binomial_lcdf<N: IntArg, T: Real>(N, &[T]) -> Result<T>
+distributions poisson_binomial_lpmf poisson_binomial_lpmf<N: IntArg, T: Real>(N, &[T]) -> Result<T>
+distributions poisson_binomial_lupmf poisson_binomial_lupmf<N: IntArg, T: Real>(N, &[T]) -> Result<T>
+distributions poisson_binomial_rng poisson_binomial_rng<R: Rng+?Sized>(&[f64], &mut R) -> Result<i64>
+distributions poisson_cdf poisson_cdf<N: IntArg, L>(N, L) -> Result<Promoted<(L), 1>>
+distributions poisson_lccdf poisson_lccdf<N: IntArg, L>(N, L) -> Result<Promoted<(L), 1>>
+distributions poisson_lcdf poisson_lcdf<N: IntArg, L>(N, L) -> Result<Promoted<(L), 1>>
+distributions poisson_log_glm_lpmf poisson_log_glm_lpmf<N: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real>(N, &Matrix<X>, A, &[B]) -> Result<T>
+distributions poisson_log_glm_lpmf poisson_log_glm_lpmf_row<N: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real>(N, &[X], A, &[B]) -> Result<T>
+distributions poisson_log_glm_lupmf poisson_log_glm_lupmf<N: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real>(N, &Matrix<X>, A, &[B]) -> Result<T>
+distributions poisson_log_glm_lupmf poisson_log_glm_lupmf_row<N: IntArg, X: Lift+Copy, A: Arg, B: Lift+Copy, T: Real>(N, &[X], A, &[B]) -> Result<T>
+distributions poisson_log_lpmf poisson_log_lpmf<N: IntArg, A>(N, A) -> Result<Promoted<(A), 1>>
+distributions poisson_log_lupmf poisson_log_lupmf<N: IntArg, A>(N, A) -> Result<Promoted<(A), 1>>
+distributions poisson_log_rng poisson_log_rng<R: Rng+?Sized>(f64, &mut R) -> Result<i64>
+distributions poisson_lpmf poisson_lpmf<N: IntArg, L>(N, L) -> Result<Promoted<(L), 1>>
+distributions poisson_lupmf poisson_lupmf<N: IntArg, L>(N, L) -> Result<Promoted<(L), 1>>
+distributions poisson_rng poisson_rng<R: Rng+?Sized>(f64, &mut R) -> Result<i64>
+autodiff polar polar<T: Real>(T, T) -> Complex<T>
+autodiff positive_infinity positive_infinity<>() -> f64
+transforms positive_ordered_constrain positive_ordered_constrain<T: Real>(&[T]) -> Vec<T>
+autodiff pow pow<T: Real>(T, T) -> T
+linalg prod prod<T: Real>(&[T]) -> T
+linalg prod prod_complex<T: Real>(&[Complex<T>]) -> Complex<T>
+linalg prod prod_int<>(&[i64]) -> i64
+autodiff proj proj<T: Real>(Complex<T>) -> Complex<T>
+linalg qr qr<T: Real>(&Matrix<T>) -> (Matrix<T>, Matrix<T>)
+linalg qr_Q qr_Q<T: Real>(&Matrix<T>) -> Matrix<T>
+linalg qr_R qr_R<T: Real>(&Matrix<T>) -> Matrix<T>
+linalg qr_thin qr_thin<T: Real>(&Matrix<T>) -> (Matrix<T>, Matrix<T>)
+linalg qr_thin_Q qr_thin_Q<T: Real>(&Matrix<T>) -> Matrix<T>
+linalg qr_thin_R qr_thin_R<T: Real>(&Matrix<T>) -> Matrix<T>
+linalg quad_form quad_form<T: Real>(&Matrix<T>, &[T]) -> Result<T>
+linalg quad_form_diag quad_form_diag<T: Real>(&Matrix<T>, &[T]) -> Result<Matrix<T>>
+linalg quad_form quad_form_matrix<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+linalg quad_form_sym quad_form_sym<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+linalg quad_form_sym quad_form_sym_vector<T: Real>(&Matrix<T>, &[T]) -> Result<T>
+linalg quantile quantile<>(&[f64], f64) -> Result<f64>
+linalg quantile quantile_array<>(&[f64], &[f64]) -> Result<Vec<f64>>
+linalg rank rank<T: PartialOrd>(&[T], usize) -> Result<usize>
+distributions rayleigh_cdf rayleigh_cdf<Y, S>(Y, S) -> Result<Promoted<(Y, S), 2>>
+distributions rayleigh_lccdf rayleigh_lccdf<Y, S>(Y, S) -> Result<Promoted<(Y, S), 2>>
+distributions rayleigh_lcdf rayleigh_lcdf<Y, S>(Y, S) -> Result<Promoted<(Y, S), 2>>
+distributions rayleigh_lpdf rayleigh_lpdf<Y, S>(Y, S) -> Result<Promoted<(Y, S), 2>>
+distributions rayleigh_lupdf rayleigh_lupdf<Y, S>(Y, S) -> Result<Promoted<(Y, S), 2>>
+distributions rayleigh_rng rayleigh_rng<R: Rng+?Sized>(f64, &mut R) -> Result<f64>
+linalg rep_array rep_array<T: Clone>(T, usize) -> Vec<T>
+linalg rep_array rep_array_2d<T: Clone>(T, usize, usize) -> Vec<Vec<T>>
+linalg rep_array rep_array_3d<T: Clone>(T, usize, usize, usize) -> Vec<Vec<Vec<T>>>
+linalg rep_matrix rep_matrix<T: Clone>(T, usize, usize) -> Matrix<T>
+linalg rep_matrix rep_matrix_row_vector<T: Clone>(&[T], usize) -> Matrix<T>
+linalg rep_matrix rep_matrix_vector<T: Clone>(&[T], usize) -> Matrix<T>
+linalg rep_row_vector rep_row_vector<T: Clone>(T, usize) -> Vec<T>
+linalg rep_vector rep_vector<T: Clone>(T, usize) -> Vec<T>
+linalg reverse reverse<T: Clone>(&[T]) -> Vec<T>
+autodiff rising_factorial rising_factorial<T: Real>(T, i32) -> T
+autodiff round round<T: Real>(T) -> T
+linalg row row<T: Clone>(&Matrix<T>, usize) -> Result<Vec<T>>
+linalg rows rows<T>(&Matrix<T>) -> usize
+linalg rows_dot_product rows_dot_product<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Vec<T>>
+linalg rows_dot_product rows_dot_product_complex<R: Ring>(&Matrix<R>, &Matrix<R>) -> Result<Vec<R>>
+linalg rows_dot_self rows_dot_self<T: Real>(&Matrix<T>) -> Vec<T>
+linalg rows_dot_self rows_dot_self_complex<T: Real>(&Matrix<Complex<T>>) -> Vec<Complex<T>>
+linalg scale_matrix_exp_multiply scale_matrix_exp_multiply<T: Real>(T, &Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+distributions scaled_inv_chi_square_cdf scaled_inv_chi_square_cdf<Y, N, S>(Y, N, S) -> Result<Promoted<(Y, N, S), 3>>
+distributions scaled_inv_chi_square_lccdf scaled_inv_chi_square_lccdf<Y, N, S>(Y, N, S) -> Result<Promoted<(Y, N, S), 3>>
+distributions scaled_inv_chi_square_lcdf scaled_inv_chi_square_lcdf<Y, N, S>(Y, N, S) -> Result<Promoted<(Y, N, S), 3>>
+distributions scaled_inv_chi_square_lpdf scaled_inv_chi_square_lpdf<Y, N, S>(Y, N, S) -> Result<Promoted<(Y, N, S), 3>>
+distributions scaled_inv_chi_square_lupdf scaled_inv_chi_square_lupdf<Y, N, S>(Y, N, S) -> Result<Promoted<(Y, N, S), 3>>
+distributions scaled_inv_chi_square_rng scaled_inv_chi_square_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+linalg sd sd<T: Real>(&[T]) -> Result<T>
+linalg segment segment<T: Clone>(&[T], usize, usize) -> Result<Vec<T>>
+transforms simplex_constrain simplex_constrain<T: Real>(&[T]) -> Vec<T>
+autodiff sin sin<T: Real>(T) -> T
+linalg singular_values singular_values<T: Real>(&Matrix<T>) -> Result<Vec<T>>
+linalg singular_values singular_values_complex<T: Real>(&Matrix<Complex<T>>) -> Result<Vec<T>>
+autodiff sinh sinh<T: Real>(T) -> T
+linalg size size<T>(&[T]) -> usize
+distributions skew_double_exponential_cdf skew_double_exponential_cdf<Y, M, S, T>(Y, M, S, T) -> Result<Promoted<(Y, M, S, T), 4>>
+distributions skew_double_exponential_lccdf skew_double_exponential_lccdf<Y, M, S, T>(Y, M, S, T) -> Result<Promoted<(Y, M, S, T), 4>>
+distributions skew_double_exponential_lcdf skew_double_exponential_lcdf<Y, M, S, T>(Y, M, S, T) -> Result<Promoted<(Y, M, S, T), 4>>
+distributions skew_double_exponential_lpdf skew_double_exponential_lpdf<Y, M, S, T>(Y, M, S, T) -> Result<Promoted<(Y, M, S, T), 4>>
+distributions skew_double_exponential_lupdf skew_double_exponential_lupdf<Y, M, S, T>(Y, M, S, T) -> Result<Promoted<(Y, M, S, T), 4>>
+distributions skew_double_exponential_rng skew_double_exponential_rng<R: Rng+?Sized>(f64, f64, f64, &mut R) -> Result<f64>
+distributions skew_normal_cdf skew_normal_cdf<Y, X, O, A>(Y, X, O, A) -> Result<Promoted<(Y, X, O, A), 4>>
+distributions skew_normal_lccdf skew_normal_lccdf<Y, X, O, A>(Y, X, O, A) -> Result<Promoted<(Y, X, O, A), 4>>
+distributions skew_normal_lcdf skew_normal_lcdf<Y, X, O, A>(Y, X, O, A) -> Result<Promoted<(Y, X, O, A), 4>>
+distributions skew_normal_lpdf skew_normal_lpdf<Y, X, O, A>(Y, X, O, A) -> Result<Promoted<(Y, X, O, A), 4>>
+distributions skew_normal_lupdf skew_normal_lupdf<Y, X, O, A>(Y, X, O, A) -> Result<Promoted<(Y, X, O, A), 4>>
+distributions skew_normal_rng skew_normal_rng<R: Rng+?Sized>(f64, f64, f64, &mut R) -> Result<f64>
+autodiff softmax softmax<T: Real>(&[T]) -> Vec<T>
+linalg sort_asc sort_asc<T: PartialOrd+Clone>(&[T]) -> Result<Vec<T>>
+linalg sort_desc sort_desc<T: PartialOrd+Clone>(&[T]) -> Result<Vec<T>>
+linalg sort_indices_asc sort_indices_asc<T: PartialOrd>(&[T]) -> Result<Vec<usize>>
+linalg sort_indices_desc sort_indices_desc<T: PartialOrd>(&[T]) -> Result<Vec<usize>>
+autodiff sqrt sqrt<T: Real>(T) -> T
+autodiff sqrt2 sqrt2<>() -> f64
+autodiff square square<T: Real>(T) -> T
+linalg squared_distance squared_distance<T: Real>(&[T], &[T]) -> Result<T>
+distributions std_normal_cdf std_normal_cdf<Y>(Y) -> Result<Promoted<(Y), 1>>
+distributions std_normal_lccdf std_normal_lccdf<Y>(Y) -> Result<Promoted<(Y), 1>>
+distributions std_normal_lcdf std_normal_lcdf<Y>(Y) -> Result<Promoted<(Y), 1>>
+autodiff std_normal_log_qf std_normal_log_qf<T: Real>(T) -> T
+distributions std_normal_lpdf std_normal_lpdf<Y>(Y) -> Result<Promoted<(Y), 1>>
+distributions std_normal_lupdf std_normal_lupdf<Y>(Y) -> Result<Promoted<(Y), 1>>
+autodiff std_normal_qf std_normal_qf<T: Real>(T) -> T
+distributions std_normal_rng std_normal_rng<R: Rng+?Sized>(&mut R) -> Result<f64>
+autodiff step step<T: Real>(T) -> T
+transforms stochastic_column_constrain stochastic_column_constrain<T: Real>(&Matrix<T>) -> Matrix<T>
+transforms stochastic_row_constrain stochastic_row_constrain<T: Real>(&Matrix<T>) -> Matrix<T>
+distributions student_t_cdf student_t_cdf<Y, N, M, S>(Y, N, M, S) -> Result<Promoted<(Y, N, M, S), 4>>
+distributions student_t_lccdf student_t_lccdf<Y, N, M, S>(Y, N, M, S) -> Result<Promoted<(Y, N, M, S), 4>>
+distributions student_t_lcdf student_t_lcdf<Y, N, M, S>(Y, N, M, S) -> Result<Promoted<(Y, N, M, S), 4>>
+distributions student_t_lpdf student_t_lpdf<Y, N, M, S>(Y, N, M, S) -> Result<Promoted<(Y, N, M, S), 4>>
+distributions student_t_lupdf student_t_lupdf<Y, N, M, S>(Y, N, M, S) -> Result<Promoted<(Y, N, M, S), 4>>
+distributions student_t_qf student_t_qf<T: Real>(T, T, T, T) -> Result<T>
+distributions student_t_rng student_t_rng<R: Rng+?Sized>(f64, f64, f64, &mut R) -> Result<f64>
+linalg sub_col sub_col<T: Clone>(&Matrix<T>, usize, usize, usize) -> Result<Vec<T>>
+linalg sub_row sub_row<T: Clone>(&Matrix<T>, usize, usize, usize) -> Result<Vec<T>>
+linalg subtract subtract<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<Matrix<T>>
+autodiff sum sum<T: Real>(&[T]) -> T
+linalg sum sum_complex<R: Ring>(&[R]) -> R
+transforms sum_to_zero_constrain sum_to_zero_constrain<T: Real>(&[T]) -> Vec<T>
+transforms sum_to_zero_jacobian sum_to_zero_jacobian<T: Real>(&[T], &mut T) -> Vec<T>
+linalg svd svd<T: Real>(&Matrix<T>) -> Result<(Matrix<T>, Vec<T>, Matrix<T>)>
+linalg svd_U svd_U<T: Real>(&Matrix<T>) -> Result<Matrix<T>>
+linalg svd_U svd_U_complex<T: Real>(&Matrix<Complex<T>>) -> Result<Matrix<Complex<T>>>
+linalg svd_V svd_V<T: Real>(&Matrix<T>) -> Result<Matrix<T>>
+linalg svd_V svd_V_complex<T: Real>(&Matrix<Complex<T>>) -> Result<Matrix<Complex<T>>>
+linalg svd svd_complex<T: Real>(&Matrix<Complex<T>>) -> Result<(Matrix<Complex<T>>, Vec<T>, Matrix<Complex<T>>)>
+linalg symmetrize_from_lower_tri symmetrize_from_lower_tri<T: Real>(&Matrix<T>) -> Result<Matrix<T>>
+linalg symmetrize_from_lower_tri symmetrize_from_lower_tri_complex<T: Clone>(&Matrix<T>) -> Result<Matrix<T>>
+linalg tail tail<T: Clone>(&[T], usize) -> Result<Vec<T>>
+autodiff tan tan<T: Real>(T) -> T
+autodiff tanh tanh<T: Real>(T) -> T
+linalg tcrossprod tcrossprod<T: Real>(&Matrix<T>) -> Result<Matrix<T>>
+autodiff tgamma tgamma<T: Real>(T) -> T
+linalg to_array_1d to_array_1d<T: Clone>(&Matrix<T>) -> Vec<T>
+linalg to_array_1d to_array_1d_from_array_2d<T: Clone>(&[Vec<T>]) -> Vec<T>
+linalg to_array_1d to_array_1d_from_array_3d<T: Clone>(&[Vec<Vec<T>>]) -> Vec<T>
+autodiff to_array_1d to_array_1d_nested<C: ScalarContainer>(&C) -> Vec<C::Scalar>
+linalg to_array_2d to_array_2d<T: Clone>(&Matrix<T>) -> Vec<Vec<T>>
+autodiff to_complex to_complex<T: Real>(T, T) -> Complex<T>
+linalg to_int to_int<>(f64) -> Result<i64>
+linalg to_int to_int_array<>(&[f64]) -> Result<Vec<i64>>
+linalg to_matrix to_matrix<T: Clone>(&[T], usize, usize) -> Result<Matrix<T>>
+linalg to_matrix to_matrix_from_array_2d<T: Clone>(&[Vec<T>]) -> Result<Matrix<T>>
+linalg to_matrix to_matrix_from_int_array_2d<T: Real>(&[Vec<i64>]) -> Result<Matrix<T>>
+linalg to_matrix to_matrix_from_row_vector<T: Clone>(&[T]) -> Matrix<T>
+linalg to_matrix to_matrix_from_vector<T: Clone>(&[T]) -> Matrix<T>
+linalg to_matrix to_matrix_from_vector_array<T: Clone>(&[Vec<T>]) -> Result<Matrix<T>>
+linalg to_row_vector to_row_vector<T: Clone>(&[T]) -> Vec<T>
+linalg to_row_vector_array to_row_vector_array<T: Clone>(&Matrix<T>) -> Vec<Vec<T>>
+linalg to_row_vector to_row_vector_int<T: Real>(&[i64]) -> Vec<T>
+linalg to_row_vector to_row_vector_matrix<T: Clone>(&Matrix<T>) -> Vec<T>
+linalg to_vector to_vector<T: Clone>(&[T]) -> Vec<T>
+linalg to_vector_array to_vector_array<T: Clone>(&Matrix<T>) -> Vec<Vec<T>>
+linalg to_vector to_vector_int<T: Real>(&[i64]) -> Vec<T>
+linalg to_vector to_vector_matrix<T: Clone>(&Matrix<T>) -> Vec<T>
+linalg trace trace<T: Real>(&Matrix<T>) -> T
+linalg trace trace_complex<R: Ring>(&Matrix<R>) -> R
+linalg trace_dot trace_dot<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<T>
+linalg trace_gen_quad_form trace_gen_quad_form<T: Real>(&Matrix<T>, &Matrix<T>, &Matrix<T>) -> Result<T>
+linalg trace_quad_form trace_quad_form<T: Real>(&Matrix<T>, &Matrix<T>) -> Result<T>
+linalg transpose transpose<T: Real>(&Matrix<T>) -> Matrix<T>
+autodiff trigamma trigamma<T: Real>(T) -> T
+autodiff trunc trunc<T: Real>(T) -> T
+distributions uniform_cdf uniform_cdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions uniform_lccdf uniform_lccdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions uniform_lcdf uniform_lcdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions uniform_lpdf uniform_lpdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions uniform_lupdf uniform_lupdf<Y, A, B>(Y, A, B) -> Result<Promoted<(Y, A, B), 3>>
+distributions uniform_rng uniform_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+linalg uniform_simplex uniform_simplex<T: Real>(usize) -> Result<Vec<T>>
+transforms unit_vector_constrain unit_vector_constrain<T: Real>(&[T]) -> Result<Vec<T>>
+linalg variance variance<T: Real>(&[T]) -> Result<T>
+distributions von_mises_cdf von_mises_cdf<Y, M, K>(Y, M, K) -> Result<Promoted<(Y, M, K), 3>>
+distributions von_mises_lccdf von_mises_lccdf<Y, M, K>(Y, M, K) -> Result<Promoted<(Y, M, K), 3>>
+distributions von_mises_lcdf von_mises_lcdf<Y, M, K>(Y, M, K) -> Result<Promoted<(Y, M, K), 3>>
+distributions von_mises_lpdf von_mises_lpdf<Y, M, K>(Y, M, K) -> Result<Promoted<(Y, M, K), 3>>
+distributions von_mises_lupdf von_mises_lupdf<Y, M, K>(Y, M, K) -> Result<Promoted<(Y, M, K), 3>>
+distributions von_mises_rng von_mises_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+distributions weibull_cdf weibull_cdf<Y, A, S>(Y, A, S) -> Result<Promoted<(Y, A, S), 3>>
+distributions weibull_lccdf weibull_lccdf<Y, A, S>(Y, A, S) -> Result<Promoted<(Y, A, S), 3>>
+distributions weibull_lcdf weibull_lcdf<Y, A, S>(Y, A, S) -> Result<Promoted<(Y, A, S), 3>>
+distributions weibull_lpdf weibull_lpdf<Y, A, S>(Y, A, S) -> Result<Promoted<(Y, A, S), 3>>
+distributions weibull_lupdf weibull_lupdf<Y, A, S>(Y, A, S) -> Result<Promoted<(Y, A, S), 3>>
+distributions weibull_rng weibull_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+distributions wiener_lccdf_unnorm wiener_lccdf_unnorm<Y, A, T0, W, V>(Y, A, T0, W, V) -> Result<WienerOut<(Y, A, T0, W, V), 5>>
+distributions wiener_lcdf_unnorm wiener_lcdf_unnorm<Y, A, T0, W, V>(Y, A, T0, W, V) -> Result<WienerOut<(Y, A, T0, W, V), 5>>
+distributions wiener_lpdf wiener_lpdf<Y, A, T, B, D>(Y, A, T, B, D) -> Result<Promoted<(Y, A, T, B, D), 5>>
+distributions wiener_lupdf wiener_lupdf<Y, A, T, B, D>(Y, A, T, B, D) -> Result<Promoted<(Y, A, T, B, D), 5>>
+distributions wishart_cholesky_lpdf wishart_cholesky_lpdf<T: Real, N: Lift>(&Matrix<T>, N, &Matrix<T>) -> Result<T>
+distributions wishart_cholesky_lupdf wishart_cholesky_lupdf<T: Real, N: Lift>(&Matrix<T>, N, &Matrix<T>) -> Result<T>
+distributions wishart_cholesky_rng wishart_cholesky_rng<R: Rng+?Sized>(f64, &Matrix<f64>, &mut R) -> Result<Matrix<f64>>
+distributions wishart_lpdf wishart_lpdf<T: Real, N: Lift>(&Matrix<T>, N, &Matrix<T>) -> Result<T>
+distributions wishart_lupdf wishart_lupdf<T: Real, N: Lift>(&Matrix<T>, N, &Matrix<T>) -> Result<T>
+distributions wishart_rng wishart_rng<R: Rng+?Sized>(f64, &Matrix<f64>, &mut R) -> Result<Matrix<f64>>
+distributions yule_simon_cdf yule_simon_cdf<N: IntArg, A>(N, A) -> Result<Promoted<(A), 1>>
+distributions yule_simon_lccdf yule_simon_lccdf<N: IntArg, A>(N, A) -> Result<Promoted<(A), 1>>
+distributions yule_simon_lcdf yule_simon_lcdf<N: IntArg, A>(N, A) -> Result<Promoted<(A), 1>>
+distributions yule_simon_lpmf yule_simon_lpmf<N: IntArg, A>(N, A) -> Result<Promoted<(A), 1>>
+distributions yule_simon_lupmf yule_simon_lupmf<N: IntArg, A>(N, A) -> Result<Promoted<(A), 1>>
+distributions yule_simon_rng yule_simon_rng<R: Rng+?Sized>(f64, &mut R) -> Result<i64>
+linalg zeros_array zeros_array<T: Real>(usize) -> Vec<T>
+linalg zeros_int_array zeros_int_array<>(usize) -> Vec<i64>
+linalg zeros_row_vector zeros_row_vector<T: Real>(usize) -> Vec<T>
+linalg zeros_vector zeros_vector<T: Real>(usize) -> Vec<T>

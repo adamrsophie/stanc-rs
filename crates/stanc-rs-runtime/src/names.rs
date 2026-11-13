@@ -14,7 +14,7 @@ fn included(v: &VarInfo, include_tp: bool, include_gq: bool) -> bool {
 fn column_major_indices(dims: &[usize]) -> Vec<Vec<usize>> {
     let n: usize = dims.iter().product();
     let mut out = Vec::with_capacity(n);
-    if dims.iter().any(|d| *d == 0) {
+    if dims.contains(&0) {
         return out;
     }
     let mut idx = vec![1; dims.len()];
@@ -81,22 +81,36 @@ pub fn to_output_order(values: &[f64], info: &VarInfo) -> Vec<f64> {
     out
 }
 
+/// Appends the values of one variable to `out` in CmdStan's output order.
+pub fn push_output(out: &mut Vec<f64>, x: &impl crate::check::Values, info: &VarInfo) {
+    out.extend(to_output_order(&x.to_values(), info));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn info(dims: Vec<usize>, matrix: bool) -> VarInfo {
-        VarInfo { name: "x".into(), dims, block: VarBlock::Parameters, complex: false, matrix }
+        VarInfo {
+            name: "x".into(),
+            dims,
+            block: VarBlock::Parameters,
+            complex: false,
+            matrix,
+        }
     }
 
     #[test]
     fn names_and_order() {
         let v = info(vec![2, 3], false);
-        let names = flat_names(&[v.clone()], false, false);
+        let names = flat_names(std::slice::from_ref(&v), false, false);
         assert_eq!(names[..3], ["x.1.1", "x.2.1", "x.1.2"]);
         // Array of arrays stored row-major: x[1][1], x[1][2], x[1][3], x[2][1], ...
         let vals = [11.0, 12.0, 13.0, 21.0, 22.0, 23.0];
-        assert_eq!(to_output_order(&vals, &v), vec![11.0, 21.0, 12.0, 22.0, 13.0, 23.0]);
+        assert_eq!(
+            to_output_order(&vals, &v),
+            vec![11.0, 21.0, 12.0, 22.0, 13.0, 23.0]
+        );
         // A matrix is stored column-major already.
         let m = info(vec![2, 3], true);
         let vals = [11.0, 21.0, 12.0, 22.0, 13.0, 23.0];
