@@ -20,6 +20,7 @@
 pub mod expr;
 pub mod library;
 pub mod program;
+pub mod solvers;
 pub mod stmt;
 
 use std::collections::{HashMap, HashSet};

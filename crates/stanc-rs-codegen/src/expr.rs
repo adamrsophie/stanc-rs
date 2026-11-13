@@ -180,6 +180,45 @@ impl Gen {
         }
     }
 
+    /// The primal (`f64`) value of `code`, of type `ty` at level `ad`.
+    pub fn to_f64(&mut self, code: String, ty: &U, ad: &Ad) -> String {
+        if !ad.has_autodiff() {
+            return code;
+        }
+        let cval = |c: &str| format!("sm::Complex::new({c}.re.value(), {c}.im.value())");
+        match ty {
+            U::Real => format!("({code}).value()"),
+            U::Complex => {
+                let t = self.fresh("c");
+                format!("{{ let {t} = {code}; {} }}", cval(&t))
+            }
+            U::Vector | U::RowVector => format!("rt::check::vals(&{code})"),
+            U::Matrix => format!("rt::check::mat_vals(&{code})"),
+            U::ComplexVector | U::ComplexRowVector => {
+                format!(
+                    "({code}).iter().map(|c__| {}).collect::<Vec<_>>()",
+                    cval("c__")
+                )
+            }
+            U::ComplexMatrix => format!("({code}).map(|c__| {})", cval("c__")),
+            U::Array(t) => {
+                let v = self.fresh("e");
+                let inner = self.to_f64(v.clone(), t, ad);
+                format!("({code}).into_iter().map(|{v}| {inner}).collect::<Vec<_>>()")
+            }
+            U::Tuple(ts) => {
+                let t = self.fresh("t");
+                let parts: Vec<String> = ts
+                    .iter()
+                    .enumerate()
+                    .map(|(i, st)| self.to_f64(format!("{t}.{i}"), st, &slot_ad(ad, i)))
+                    .collect();
+                format!("{{ let {t} = {code}; ({},) }}", parts.join(", "))
+            }
+            _ => code,
+        }
+    }
+
     /// The value of `e` converted to type `ty` at level `ad`.
     pub fn expr_as(&mut self, e: &TExpr, ty: &U, ad: &Ad) -> R<String> {
         let c = self.expr(e)?;
@@ -694,12 +733,66 @@ impl Gen {
         Ok(format!("{}::<{s}>({})?", def.rust_name, parts.join(", ")))
     }
 
+    /// Higher-order functions that lower to direct calls of the user-defined function argument.
+    fn higher_order(&mut self, e: Option<&TExpr>, name: &str, args: &[TExpr]) -> R<Option<String>> {
+        let fn_name = |a: &TExpr| match &a.kind {
+            TExprKind::Variable { name, .. } => Some(name.clone()),
+            _ => None,
+        };
+        match name {
+            // The sum of the partial sums over any partition equals one call on the whole slice.
+            "reduce_sum" | "reduce_sum_static" if args.len() >= 3 => {
+                let Some(f) = fn_name(&args[0]) else {
+                    return Ok(None);
+                };
+                let x = &args[1];
+                let int = |kind: TExprKind| TExpr {
+                    kind,
+                    ty: U::Int,
+                    ad: Ad::DataOnly,
+                    span: x.span,
+                };
+                let size = int(TExprKind::FunApp {
+                    kind: FunKind::StanLib,
+                    name: "size".into(),
+                    args: vec![x.clone()],
+                    cond: false,
+                });
+                let mut cargs = vec![x.clone(), int(TExprKind::IntLit(1)), size];
+                cargs.extend(args[3..].iter().cloned());
+                Ok(Some(self.udf_call(e, &f, &cargs)?))
+            }
+            "map_rect" if args.len() == 5 => {
+                let Some(f) = fn_name(&args[0]) else {
+                    return Ok(None);
+                };
+                let Some(def) = self.udfs.get(&f).and_then(|d| d.first()).cloned() else {
+                    return Ok(None);
+                };
+                let ad = e.map_or(Ad::DataOnly, |e| e.ad.clone());
+                let s = scalar(&ad);
+                let phi = self.expr_as(&args[1], &U::Vector, &ad)?;
+                let thetas = self.expr_as(&args[2], &U::Array(Box::new(U::Vector)), &ad)?;
+                let xr = self.expr(&args[3])?;
+                let xi = self.expr(&args[4])?;
+                Ok(Some(format!(
+                    "rt::stan::map_rect({phi}, {thetas}, {xr}, {xi}, |p__, t__, r__, i__| {}::<{s}>(p__, t__, r__, i__))?",
+                    def.rust_name
+                )))
+            }
+            _ => self.solver(e, name, args),
+        }
+    }
+
     /// A call to a Stan Math library function.
     pub fn lib_call(&mut self, e: Option<&TExpr>, name: &str, args: &[TExpr]) -> R<String> {
         let span = e
             .map(|e| e.span)
             .or_else(|| args.first().map(|a| a.span))
             .unwrap_or_default();
+        if let Some(code) = self.higher_order(e, name, args)? {
+            return Ok(code);
+        }
         if args
             .iter()
             .any(|a| matches!(a.ty, U::Function(_) | U::MathLibraryFunction))
@@ -722,6 +815,18 @@ impl Gen {
             return Ok(code);
         }
         let result_ad = e.map_or(Ad::DataOnly, |e| e.ad.clone());
+        // A call on data alone computes in f64; lift the result where autodiff is expected.
+        if let Some(e) = e
+            && result_ad.has_autodiff()
+            && args.iter().all(|a| !a.ad.has_autodiff())
+        {
+            let data_e = TExpr {
+                ad: Ad::DataOnly.fill_for(&e.ty),
+                ..e.clone()
+            };
+            let code = self.lib_call(Some(&data_e), name, &args)?;
+            return Ok(self.convert(code, &e.ty, &data_e.ad, &e.ty, &e.ad));
+        }
         let lupdf = name.ends_with("_lupdf") || name.ends_with("_lupmf");
         if lupdf {
             let full = name.replace("_lupdf", "_lpdf").replace("_lupmf", "_lpmf");
@@ -1003,10 +1108,21 @@ impl Gen {
             ("size", [t]) if !matches!(t, U::Int | U::Real) => {
                 format!("(({}).len() as i64)", self.expr_ref(&args[0])?)
             }
-            ("num_elements", [t]) => format!("(rt::check::Values::to_values({}).len() as i64)", {
-                let _ = t;
-                self.expr_ref(&args[0])?
-            }),
+            ("num_elements", [_]) => {
+                let a = &args[0];
+                let c = if a.ad.has_autodiff() {
+                    let v = self.expr(a)?;
+                    format!("&({})", self.to_f64(v, &a.ty, &a.ad))
+                } else {
+                    self.expr_ref(a)?
+                };
+                let per = if matches!(leaf_scalar(&a.ty), U::Complex) {
+                    2
+                } else {
+                    1
+                };
+                format!("((rt::check::Values::to_values({c}).len() / {per}) as i64)")
+            }
             ("rows", [U::Vector | U::ComplexVector]) => {
                 format!("(({}).len() as i64)", self.expr_ref(&args[0])?)
             }

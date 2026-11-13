@@ -245,3 +245,61 @@ pub fn min_int(x: &[i64]) -> Result<i64> {
         .min()
         .ok_or_else(|| ModelError::domain("min: array is empty"))
 }
+
+fn pick<A: Clone>(v: &[Vec<A>], j: usize) -> Vec<A> {
+    v.get(j).cloned().unwrap_or_default()
+}
+
+/// Stan's `map_rect`: `f(phi, thetas[j], x_r[j], x_i[j])` for every job `j`, concatenated. The
+/// number of jobs is the largest of the three array sizes; an empty array stands for an empty
+/// argument to every job.
+pub fn map_rect<S: Clone>(
+    phi: Vec<S>,
+    thetas: Vec<Vec<S>>,
+    x_r: Vec<Vec<f64>>,
+    x_i: Vec<Vec<i64>>,
+    mut f: impl FnMut(Vec<S>, Vec<S>, Vec<f64>, Vec<i64>) -> Result<Vec<S>>,
+) -> Result<Vec<S>> {
+    let jobs = thetas.len().max(x_r.len()).max(x_i.len());
+    for (what, n) in [
+        ("job parameters", thetas.len()),
+        ("real data", x_r.len()),
+        ("integer data", x_i.len()),
+    ] {
+        if n != 0 && n != jobs {
+            return Err(ModelError::new(
+                crate::ErrorKind::Size,
+                format!("map_rect: {what} has {n} jobs but another argument has {jobs}"),
+            ));
+        }
+    }
+    let mut out = Vec::new();
+    for j in 0..jobs {
+        out.extend(f(
+            phi.clone(),
+            pick(&thetas, j),
+            pick(&x_r, j),
+            pick(&x_i, j),
+        )?);
+    }
+    Ok(out)
+}
+
+/// The next value of `theta` at cursor `k` (used to rebuild solver arguments).
+pub fn next_theta<T: Real>(theta: &[T], k: &std::cell::Cell<usize>) -> T {
+    let i = k.get();
+    k.set(i + 1);
+    theta
+        .get(i)
+        .copied()
+        .unwrap_or_else(|| T::from_f64(f64::NAN))
+}
+
+/// A matrix shaped like `template` with values read from `theta` in column-major order.
+pub fn unflatten_mat<T: Real>(
+    template: &Matrix<f64>,
+    theta: &[T],
+    k: &std::cell::Cell<usize>,
+) -> Matrix<T> {
+    template.map(|_| next_theta(theta, k))
+}

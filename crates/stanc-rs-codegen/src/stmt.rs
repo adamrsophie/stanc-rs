@@ -247,7 +247,12 @@ impl Gen {
             match p {
                 TPrintable::Str(s) => out.push_str(&format!(" s__.push_str({});", rust_string(s))),
                 TPrintable::Expr(e) => {
-                    let c = self.expr_ref(e)?;
+                    let c = if e.ad.has_autodiff() {
+                        let v = self.expr(e)?;
+                        format!("&({})", self.to_f64(v, &e.ty, &e.ad))
+                    } else {
+                        self.expr_ref(e)?
+                    };
                     out.push_str(&format!(" rt::stan::StanDisplay::stan_fmt({c}, &mut s__);"));
                 }
             }

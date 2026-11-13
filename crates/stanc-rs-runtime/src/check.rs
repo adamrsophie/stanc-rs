@@ -356,12 +356,8 @@ pub fn sum_to_zero_matrix(name: &str, m: &Matrix<f64>) -> Result<()> {
 }
 
 /// Values of a vector-like value as `f64`.
-pub fn vals<T: Values>(x: &[T]) -> Vec<f64> {
-    let mut v = Vec::new();
-    for e in x {
-        e.values(&mut v);
-    }
-    v
+pub fn vals<T: Real>(x: &[T]) -> Vec<f64> {
+    x.iter().map(|v| v.value()).collect()
 }
 
 /// Values of a matrix as an `f64` matrix.

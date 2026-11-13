@@ -332,7 +332,7 @@ impl Gen {
             };
             self.line(LINT_ALLOW);
             self.line(&format!(
-                "pub fn {}<T: rt::check::Scalar>({}) -> rt::Result<{ret_ty}> {{",
+                "pub fn {}<T: sm::Real>({}) -> rt::Result<{ret_ty}> {{",
                 def.rust_name,
                 params.join(", ")
             ));

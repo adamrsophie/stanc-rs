@@ -373,3 +373,49 @@ fn control_flow() {
     assert_close(m.log_density(&[m0], FULL).unwrap(), expected, 1e-14);
     check_gradient(&m, &[m0], FULL);
 }
+
+#[test]
+fn ode_solutions_and_gradient() {
+    let m = fx::ode_decay::Model::new(&data(r#"{"T": 3, "ts": [0.5, 1, 2], "y0": [1, 2]}"#), 0)
+        .unwrap();
+    for z in [-0.5, 0.2] {
+        let k = f64::exp(z);
+        let out = m.write_array(&[z], true, true, &mut rng()).unwrap();
+        // k, then y[3, 2] and y_bdf[3, 2], each column-major (time index fastest).
+        for (block, tol) in [(1, 1e-8), (7, 1e-7)] {
+            for (j, t) in [0.5, 1.0, 2.0].iter().enumerate() {
+                for (c, y0) in [1.0, 2.0].iter().enumerate() {
+                    assert_close(out[block + c * 3 + j], y0 * (-k * t).exp(), tol);
+                }
+            }
+        }
+        let y_end = (-k * 2.0).exp();
+        let expected = -0.5 * LN_2PI - z - 0.5 * z * z + normal_lpdf(y_end, 0.3, 0.1) + z;
+        let (lp, g) = m.log_density_gradient(&[z], FULL).unwrap();
+        assert_close(lp, expected, 1e-7);
+        // d/dz of the likelihood term through y = exp(-2 k), dk/dz = k.
+        let dy = -2.0 * k * y_end;
+        let analytic = -z - (y_end - 0.3) / 0.01 * dy;
+        assert_close(g[0], analytic, 1e-6);
+    }
+}
+
+#[test]
+fn algebra_integration_and_functionals() {
+    let ys = [0.5, -1.0, 2.0, 0.1];
+    let m = fx::solvers::Model::new(&data(r#"{"ys": [0.5, -1.0, 2.0, 0.1]}"#), 0).unwrap();
+    let theta = [0.3, -0.4];
+    let a = 0.5 + f64::exp(theta[0]);
+    let mu = theta[1];
+    let out = m.write_array(&theta, true, false, &mut rng()).unwrap();
+    // a, mu, root, root2, area, rs, mr[2]
+    assert_close(out[0], a, 1e-15);
+    assert_close(out[2], a.sqrt(), 1e-10);
+    assert_close(out[3], 2.0 * a, 1e-10);
+    assert_close(out[4], std::f64::consts::PI.sqrt(), 1e-8);
+    let rs: f64 = ys.iter().map(|y| normal_lpdf(*y, mu, 1.0)).sum();
+    assert_close(out[5], rs, 1e-14);
+    assert_close(out[6], a + 1.0 + 10.0, 1e-14);
+    assert_close(out[7], 2.0 * a + 2.0 + 20.0, 1e-14);
+    check_gradient(&m, &theta, FULL);
+}
