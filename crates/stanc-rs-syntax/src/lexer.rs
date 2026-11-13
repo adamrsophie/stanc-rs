@@ -168,7 +168,8 @@ impl Tok {
         match self {
             Tok::Truncate | Tok::Ident(_) => None,
             Tok::TransformedData | Tok::TransformedParameters | Tok::GeneratedQuantities => None,
-            other => keyword_text(other).filter(|s| s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')),
+            other => keyword_text(other)
+                .filter(|s| s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')),
         }
     }
 }
@@ -274,7 +275,11 @@ fn keyword_text(t: &Tok) -> Option<&'static str> {
         Tok::GeneratedQuantities => return Some("generated quantities"),
         _ => {}
     }
-    KEYWORDS.iter().chain(SYMBOLS).find(|(_, k)| k == t).map(|(s, _)| *s)
+    KEYWORDS
+        .iter()
+        .chain(SYMBOLS)
+        .find(|(_, k)| k == t)
+        .map(|(s, _)| *s)
 }
 
 /// A token with its location.
@@ -329,12 +334,21 @@ pub fn tokenize_partial(
     match lex_file(sources, file, resolver, &mut stack, &mut out) {
         Ok(()) => {
             let end = sources.files[file as usize].text.len();
-            out.push(Token { tok: Tok::Eof, span: Span::new(file, end, end) });
+            out.push(Token {
+                tok: Tok::Eof,
+                span: Span::new(file, end, end),
+            });
             (out, None)
         }
         Err(e) => {
             let at = e.span.unwrap_or_default();
-            out.push(Token { tok: Tok::Eof, span: Span { end: at.start, ..at } });
+            out.push(Token {
+                tok: Tok::Eof,
+                span: Span {
+                    end: at.start,
+                    ..at
+                },
+            });
             (out, Some(e))
         }
     }
@@ -350,7 +364,8 @@ fn lex_file(
     let text = sources.files[file as usize].text.clone();
     let b = text.as_bytes();
     let mut i = 0;
-    let err = |kind, s: usize, e: usize, msg: String| Diagnostic::new(kind, Span::new(file, s, e), msg);
+    let err =
+        |kind, s: usize, e: usize, msg: String| Diagnostic::new(kind, Span::new(file, s, e), msg);
     while i < b.len() {
         let c = b[i];
         // Whitespace.
@@ -389,7 +404,12 @@ fn lex_file(
                 j += 1;
             }
             if j == ws_start {
-                return Err(err(DiagnosticKind::Lexical, start, j, "Invalid character found: '#'.".into()));
+                return Err(err(
+                    DiagnosticKind::Lexical,
+                    start,
+                    j,
+                    "Invalid character found: '#'.".into(),
+                ));
             }
             let (name, end) = if j < b.len() && (b[j] == b'"' || b[j] == b'<') {
                 let close = if b[j] == b'"' { b'"' } else { b'>' };
@@ -398,7 +418,12 @@ fn lex_file(
                     k += 1;
                 }
                 if k >= b.len() || b[k] != close {
-                    return Err(err(DiagnosticKind::Lexical, start, k, "Unterminated #include file name.".into()));
+                    return Err(err(
+                        DiagnosticKind::Lexical,
+                        start,
+                        k,
+                        "Unterminated #include file name.".into(),
+                    ));
                 }
                 (text[j + 1..k].to_string(), k + 1)
             } else {
@@ -408,7 +433,7 @@ fn lex_file(
                 }
                 (text[j..k].to_string(), k)
             };
-            if stack.iter().any(|s| *s == name) {
+            if stack.contains(&name) {
                 return Err(err(
                     DiagnosticKind::Include,
                     start,
@@ -417,7 +442,12 @@ fn lex_file(
                 ));
             }
             if stack.len() > MAX_INCLUDE_DEPTH {
-                return Err(err(DiagnosticKind::Include, start, end, "Includes are nested too deeply.".into()));
+                return Err(err(
+                    DiagnosticKind::Include,
+                    start,
+                    end,
+                    "Includes are nested too deeply.".into(),
+                ));
             }
             let Some((display, contents)) = resolver.resolve(&name) else {
                 return Err(err(
@@ -468,7 +498,10 @@ fn lex_file(
             .into_iter()
             .find_map(|(a, s, t)| two_word(a, s).map(|e| (e, t)));
             if let Some((e, t)) = block {
-                out.push(Token { tok: t, span: Span::new(file, i, e) });
+                out.push(Token {
+                    tok: t,
+                    span: Span::new(file, i, e),
+                });
                 i = e;
                 continue;
             }
@@ -477,14 +510,21 @@ fn lex_file(
                 .find(|(k, _)| *k == word)
                 .map(|(_, t)| t.clone())
                 .unwrap_or_else(|| Tok::Ident(word.to_string()));
-            out.push(Token { tok, span: Span::new(file, i, j) });
+            out.push(Token {
+                tok,
+                span: Span::new(file, i, j),
+            });
             i = j;
             continue;
         }
         // Numbers.
         if c.is_ascii_digit() || (c == b'.' && i + 1 < b.len() && b[i + 1].is_ascii_digit()) {
-            let (tok, j) = lex_number(&text, i).map_err(|(e, msg)| err(DiagnosticKind::Lexical, i, e, msg))?;
-            out.push(Token { tok, span: Span::new(file, i, j) });
+            let (tok, j) =
+                lex_number(&text, i).map_err(|(e, msg)| err(DiagnosticKind::Lexical, i, e, msg))?;
+            out.push(Token {
+                tok,
+                span: Span::new(file, i, j),
+            });
             i = j;
             continue;
         }
@@ -495,15 +535,26 @@ fn lex_file(
                 j += 1;
             }
             if j >= b.len() || b[j] != b'"' {
-                return Err(err(DiagnosticKind::Lexical, i, j, "Unterminated string literal.".into()));
+                return Err(err(
+                    DiagnosticKind::Lexical,
+                    i,
+                    j,
+                    "Unterminated string literal.".into(),
+                ));
             }
-            out.push(Token { tok: Tok::StringLit(text[i..=j].to_string()), span: Span::new(file, i, j + 1) });
+            out.push(Token {
+                tok: Tok::StringLit(text[i..=j].to_string()),
+                span: Span::new(file, i, j + 1),
+            });
             i = j + 1;
             continue;
         }
         // Symbols.
         if let Some((s, t)) = SYMBOLS.iter().find(|(s, _)| text[i..].starts_with(s)) {
-            out.push(Token { tok: t.clone(), span: Span::new(file, i, i + s.len()) });
+            out.push(Token {
+                tok: t.clone(),
+                span: Span::new(file, i, i + s.len()),
+            });
             i += s.len();
             continue;
         }
@@ -606,7 +657,11 @@ mod tests {
     fn toks(src: &str) -> Vec<Tok> {
         let mut sm = SourceMap::default();
         let f = sm.add(SourceFile::new("t.stan", src));
-        tokenize(&mut sm, f, &NoIncludes).unwrap().into_iter().map(|t| t.tok).collect()
+        tokenize(&mut sm, f, &NoIncludes)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.tok)
+            .collect()
     }
 
     fn lex_err(src: &str) -> Diagnostic {
@@ -687,13 +742,19 @@ mod tests {
         assert!(lex_err("x @ y").message.contains("'@'"));
         assert!(lex_err("x = \"abc").message.contains("Unterminated"));
         assert!(lex_err("é").message.contains("Invalid character"));
-        assert!(lex_err("# comment").message.contains("'#'") || lex_err("# comment").kind == DiagnosticKind::Lexical);
+        assert!(
+            lex_err("# comment").message.contains("'#'")
+                || lex_err("# comment").kind == DiagnosticKind::Lexical
+        );
     }
 
     struct Map(Vec<(&'static str, &'static str)>);
     impl IncludeResolver for Map {
         fn resolve(&self, name: &str) -> Option<(String, String)> {
-            self.0.iter().find(|(n, _)| *n == name).map(|(n, t)| (n.to_string(), t.to_string()))
+            self.0
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(n, t)| (n.to_string(), t.to_string()))
         }
     }
 
@@ -710,6 +771,11 @@ mod tests {
         let mut sm = SourceMap::default();
         let f = sm.add(SourceFile::new("m.stan", "#include <loop.stan>"));
         let r = Map(vec![("loop.stan", "#include loop.stan")]);
-        assert!(tokenize(&mut sm, f, &r).unwrap_err().message.contains("recursively"));
+        assert!(
+            tokenize(&mut sm, f, &r)
+                .unwrap_err()
+                .message
+                .contains("recursively")
+        );
     }
 }

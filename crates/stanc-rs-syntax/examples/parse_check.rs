@@ -8,7 +8,9 @@ impl IncludeResolver for Dirs {
     fn resolve(&self, name: &str) -> Option<(String, String)> {
         self.0.iter().find_map(|d| {
             let p = d.join(name);
-            std::fs::read_to_string(&p).ok().map(|t| (p.display().to_string(), t))
+            std::fs::read_to_string(&p)
+                .ok()
+                .map(|t| (p.display().to_string(), t))
         })
     }
 }
@@ -16,14 +18,23 @@ impl IncludeResolver for Dirs {
 fn main() {
     for arg in std::env::args().skip(1) {
         let path = Path::new(&arg);
-        let Ok(text) = std::fs::read_to_string(path) else { continue };
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
         let dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         let fo = arg.ends_with(".stanfunctions");
         match parse_with(&arg, &text, &Dirs(vec![dir]), fo) {
             Ok(_) => println!("OK {arg}"),
             Err((d, sm)) => {
                 let (l, c) = d.span.and_then(|s| sm.line_col(s)).unwrap_or((0, 0));
-                println!("ERR {:?} {}:{} {} | {}", d.kind, l, c.saturating_sub(1), arg, d.message.lines().next().unwrap_or(""));
+                println!(
+                    "ERR {:?} {}:{} {} | {}",
+                    d.kind,
+                    l,
+                    c.saturating_sub(1),
+                    arg,
+                    d.message.lines().next().unwrap_or("")
+                );
             }
         }
     }

@@ -27,20 +27,29 @@ type PResult<T> = Result<T, Diagnostic>;
 
 /// Parses a full program from tokens produced by [`crate::lexer::tokenize`].
 pub fn parse_program(tokens: &[Token]) -> PResult<Program> {
-    let mut p = Parser { toks: tokens, pos: 0 };
+    let mut p = Parser {
+        toks: tokens,
+        pos: 0,
+    };
     p.program()
 }
 
 /// Parses a `.stanfunctions` file: function definitions only.
 pub fn parse_functions_only(tokens: &[Token]) -> PResult<Program> {
-    let mut p = Parser { toks: tokens, pos: 0 };
+    let mut p = Parser {
+        toks: tokens,
+        pos: 0,
+    };
     let start = p.span();
     let mut stmts = Vec::new();
     while p.peek() != &Tok::Eof {
         stmts.push(p.function_def()?);
     }
     let span = start.to(p.prev_span());
-    Ok(Program { functions: Some(Block { stmts, span }), ..Program::default() })
+    Ok(Program {
+        functions: Some(Block { stmts, span }),
+        ..Program::default()
+    })
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -62,7 +71,12 @@ const BINARY_LEVELS: &[&[(Tok, BinOp)]] = &[
     &[(Tok::Or, BinOp::Or)],
     &[(Tok::And, BinOp::And)],
     &[(Tok::Equals, BinOp::Equals), (Tok::NEquals, BinOp::NEquals)],
-    &[(Tok::LAngle, BinOp::Less), (Tok::Leq, BinOp::Leq), (Tok::RAngle, BinOp::Greater), (Tok::Geq, BinOp::Geq)],
+    &[
+        (Tok::LAngle, BinOp::Less),
+        (Tok::Leq, BinOp::Leq),
+        (Tok::RAngle, BinOp::Greater),
+        (Tok::Geq, BinOp::Geq),
+    ],
     &[(Tok::Plus, BinOp::Plus), (Tok::Minus, BinOp::Minus)],
     &[
         (Tok::Times, BinOp::Times),
@@ -71,7 +85,10 @@ const BINARY_LEVELS: &[&[(Tok, BinOp)]] = &[
         (Tok::EltTimes, BinOp::EltTimes),
         (Tok::EltDivide, BinOp::EltDivide),
     ],
-    &[(Tok::IDivide, BinOp::IntDivide), (Tok::LDivide, BinOp::LDivide)],
+    &[
+        (Tok::IDivide, BinOp::IntDivide),
+        (Tok::LDivide, BinOp::LDivide),
+    ],
 ];
 
 /// First arithmetic level (`+ -`), the lowest level allowed in constraint expressions.
@@ -117,7 +134,11 @@ impl<'a> Parser<'a> {
     }
 
     fn unexpected<T>(&self, expected: &str) -> PResult<T> {
-        self.error(format!("Ill-formed phrase. Found \"{}\". Expected {}.", self.peek().describe(), expected))
+        self.error(format!(
+            "Ill-formed phrase. Found \"{}\". Expected {}.",
+            self.peek().describe(),
+            expected
+        ))
     }
 
     fn expect(&mut self, t: Tok, what: &str) -> PResult<Span> {
@@ -171,7 +192,10 @@ impl<'a> Parser<'a> {
                 stmts.push(s);
             }
             let end = self.bump().span;
-            let block = Some(Block { stmts, span: start.to(end) });
+            let block = Some(Block {
+                stmts,
+                span: start.to(end),
+            });
             match k {
                 0 => prog.functions = block,
                 1 => prog.data = block,
@@ -188,10 +212,14 @@ impl<'a> Parser<'a> {
     fn top_no_assign(&mut self) -> PResult<Stmt> {
         if self.peek() == &Tok::Semi {
             let span = self.bump().span;
-            return Ok(Stmt { kind: StmtKind::Skip, span });
+            return Ok(Stmt {
+                kind: StmtKind::Skip,
+                span,
+            });
         }
         if !self.peek().is_type_keyword() {
-            return self.unexpected("a variable declaration (statements are not allowed in this block)");
+            return self
+                .unexpected("a variable declaration (statements are not allowed in this block)");
         }
         self.var_decl(DeclCtx::TopNoAssign)
     }
@@ -212,7 +240,11 @@ impl<'a> Parser<'a> {
         let mut args = Vec::new();
         if self.peek() != &Tok::RParen {
             loop {
-                let ad = if self.eat(&Tok::Data) { AdLevel::DataOnly } else { AdLevel::AutoDiffable };
+                let ad = if self.eat(&Tok::Data) {
+                    AdLevel::DataOnly
+                } else {
+                    AdLevel::AutoDiffable
+                };
                 if !self.peek().is_type_keyword() {
                     return self.unexpected("an argument type");
                 }
@@ -227,14 +259,26 @@ impl<'a> Parser<'a> {
         self.expect(Tok::RParen, "\",\" or \")\" in the argument list")?;
         let body = if self.peek() == &Tok::Semi {
             let span = self.bump().span;
-            Stmt { kind: StmtKind::Skip, span }
+            Stmt {
+                kind: StmtKind::Skip,
+                span,
+            }
         } else if self.peek() == &Tok::LBrace {
             self.statement(DeclCtx::Local)?
         } else {
-            return self.unexpected("\"{\" to begin the function body or \";\" for a forward declaration");
+            return self
+                .unexpected("\"{\" to begin the function body or \";\" for a forward declaration");
         };
         let span = start.to(body.span);
-        Ok(Stmt { kind: StmtKind::FunDef { ret, name, args, body: Box::new(body) }, span })
+        Ok(Stmt {
+            kind: StmtKind::FunDef {
+                ret,
+                name,
+                args,
+                body: Box::new(body),
+            },
+            span,
+        })
     }
 
     fn basic_unsized(&mut self) -> PResult<UnsizedType> {
@@ -275,7 +319,11 @@ impl<'a> Parser<'a> {
                     n += 1;
                 }
                 self.expect(Tok::RBrack, "\",\" or \"]\" in unsized array dimensions")?;
-                let inner = if self.peek() == &Tok::Tuple { self.unsized_tuple()? } else { self.basic_unsized()? };
+                let inner = if self.peek() == &Tok::Tuple {
+                    self.unsized_tuple()?
+                } else {
+                    self.basic_unsized()?
+                };
                 Ok(inner.array_of(n))
             }
             Tok::Tuple => self.unsized_tuple(),
@@ -310,7 +358,10 @@ impl<'a> Parser<'a> {
             }
             Tok::Truncate => {
                 let span = self.bump().span;
-                Ok(Ident { name: "T".into(), span })
+                Ok(Ident {
+                    name: "T".into(),
+                    span,
+                })
             }
             _ => self.unexpected("an identifier"),
         }
@@ -363,7 +414,15 @@ impl<'a> Parser<'a> {
         }
         let end = self.expect(Tok::Semi, "\";\" or \",\" after the declaration")?;
         let is_global = ctx != DeclCtx::Local;
-        Ok(Stmt { kind: StmtKind::VarDecl { ty, trans, vars, is_global }, span: start.to(end) })
+        Ok(Stmt {
+            kind: StmtKind::VarDecl {
+                ty,
+                trans,
+                vars,
+                is_global,
+            },
+            span: start.to(end),
+        })
     }
 
     fn higher_type(&mut self, ctx: DeclCtx) -> PResult<(SizedType, Transformation)> {
@@ -377,11 +436,19 @@ impl<'a> Parser<'a> {
                 }
                 self.expect(Tok::RBrack, "\",\" or \"]\" in array dimensions")?;
                 if self.peek() == &Tok::Array {
-                    return self.error("Ill-formed type. Arrays cannot directly contain arrays; use array[N, M].");
+                    return self.error(
+                        "Ill-formed type. Arrays cannot directly contain arrays; use array[N, M].",
+                    );
                 }
-                let (inner, trans) =
-                    if self.peek() == &Tok::Tuple { self.tuple_type(ctx)? } else { self.base_type(ctx)? };
-                let ty = dims.into_iter().rev().fold(inner, |t, d| SizedType::Array(Box::new(t), d));
+                let (inner, trans) = if self.peek() == &Tok::Tuple {
+                    self.tuple_type(ctx)?
+                } else {
+                    self.base_type(ctx)?
+                };
+                let ty = dims
+                    .into_iter()
+                    .rev()
+                    .fold(inner, |t, d| SizedType::Array(Box::new(t), d));
                 Ok((ty, trans))
             }
             Tok::Tuple => self.tuple_type(ctx),
@@ -491,18 +558,34 @@ impl<'a> Parser<'a> {
                 (SizedType::ComplexMatrix(a, b), t)
             }
             Tok::Ordered => (SizedType::Vector(self.bracket1()?), Transformation::Ordered),
-            Tok::PositiveOrdered => (SizedType::Vector(self.bracket1()?), Transformation::PositiveOrdered),
+            Tok::PositiveOrdered => (
+                SizedType::Vector(self.bracket1()?),
+                Transformation::PositiveOrdered,
+            ),
             Tok::Simplex => (SizedType::Vector(self.bracket1()?), Transformation::Simplex),
-            Tok::UnitVector => (SizedType::Vector(self.bracket1()?), Transformation::UnitVector),
-            Tok::SumToZeroVector => (SizedType::Vector(self.bracket1()?), Transformation::SumToZero),
+            Tok::UnitVector => (
+                SizedType::Vector(self.bracket1()?),
+                Transformation::UnitVector,
+            ),
+            Tok::SumToZeroVector => (
+                SizedType::Vector(self.bracket1()?),
+                Transformation::SumToZero,
+            ),
             Tok::CholeskyFactorCorr => {
                 let e = self.bracket1()?;
-                (SizedType::Matrix(e.clone(), e), Transformation::CholeskyCorr)
+                (
+                    SizedType::Matrix(e.clone(), e),
+                    Transformation::CholeskyCorr,
+                )
             }
             Tok::CholeskyFactorCov => {
                 self.expect(Tok::LBrack, "\"[\" and a size")?;
                 let a = self.expr()?;
-                let b = if self.eat(&Tok::Comma) { self.expr()? } else { a.clone() };
+                let b = if self.eat(&Tok::Comma) {
+                    self.expr()?
+                } else {
+                    a.clone()
+                };
                 self.expect(Tok::RBrack, "\"]\"")?;
                 (SizedType::Matrix(a, b), Transformation::CholeskyCov)
             }
@@ -539,14 +622,26 @@ impl<'a> Parser<'a> {
                 self.expect(Tok::Assign, "\"=\" after \"lower\" or \"upper\"")?;
                 let a = self.constr_expr()?;
                 if self.eat(&Tok::Comma) {
-                    let want = if first == Tok::Lower { Tok::Upper } else { Tok::Lower };
+                    let want = if first == Tok::Lower {
+                        Tok::Upper
+                    } else {
+                        Tok::Lower
+                    };
                     if self.peek() != &want {
-                        return self.unexpected(if first == Tok::Lower { "\"upper\"" } else { "\"lower\"" });
+                        return self.unexpected(if first == Tok::Lower {
+                            "\"upper\""
+                        } else {
+                            "\"lower\""
+                        });
                     }
                     self.bump();
                     self.expect(Tok::Assign, "\"=\"")?;
                     let b = self.constr_expr()?;
-                    if first == Tok::Lower { Transformation::LowerUpper(a, b) } else { Transformation::LowerUpper(b, a) }
+                    if first == Tok::Lower {
+                        Transformation::LowerUpper(a, b)
+                    } else {
+                        Transformation::LowerUpper(b, a)
+                    }
                 } else if first == Tok::Lower {
                     Transformation::Lower(a)
                 } else {
@@ -558,9 +653,17 @@ impl<'a> Parser<'a> {
                 self.expect(Tok::Assign, "\"=\" after \"offset\" or \"multiplier\"")?;
                 let a = self.constr_expr()?;
                 if self.eat(&Tok::Comma) {
-                    let want = if first == Tok::Offset { Tok::Multiplier } else { Tok::Offset };
+                    let want = if first == Tok::Offset {
+                        Tok::Multiplier
+                    } else {
+                        Tok::Offset
+                    };
                     if self.peek() != &want {
-                        return self.unexpected(if first == Tok::Offset { "\"multiplier\"" } else { "\"offset\"" });
+                        return self.unexpected(if first == Tok::Offset {
+                            "\"multiplier\""
+                        } else {
+                            "\"offset\""
+                        });
                     }
                     self.bump();
                     self.expect(Tok::Assign, "\"=\"")?;
@@ -621,7 +724,11 @@ impl<'a> Parser<'a> {
                 let c = self.expr()?;
                 self.expect(Tok::RParen, "\")\" after the condition")?;
                 let then = self.vardecl_or_statement(DeclCtx::Local)?;
-                let els = if self.eat(&Tok::Else) { Some(Box::new(self.vardecl_or_statement(DeclCtx::Local)?)) } else { None };
+                let els = if self.eat(&Tok::Else) {
+                    Some(Box::new(self.vardecl_or_statement(DeclCtx::Local)?))
+                } else {
+                    None
+                };
                 StmtKind::IfThenElse(c, Box::new(then), els)
             }
             Tok::While => {
@@ -641,11 +748,20 @@ impl<'a> Parser<'a> {
                     let upper = self.expr()?;
                     self.expect(Tok::RParen, "\")\"")?;
                     let body = self.vardecl_or_statement(DeclCtx::Local)?;
-                    StmtKind::For { var, lower: e, upper, body: Box::new(body) }
+                    StmtKind::For {
+                        var,
+                        lower: e,
+                        upper,
+                        body: Box::new(body),
+                    }
                 } else {
                     self.expect(Tok::RParen, "\":\" or \")\"")?;
                     let body = self.vardecl_or_statement(DeclCtx::Local)?;
-                    StmtKind::ForEach { var, iter: e, body: Box::new(body) }
+                    StmtKind::ForEach {
+                        var,
+                        iter: e,
+                        body: Box::new(body),
+                    }
                 }
             }
             Tok::Profile => {
@@ -726,7 +842,10 @@ impl<'a> Parser<'a> {
             }
             _ => return self.expr_statement(start),
         };
-        Ok(Stmt { kind, span: start.to(self.prev_span()) })
+        Ok(Stmt {
+            kind,
+            span: start.to(self.prev_span()),
+        })
     }
 
     fn stmt_list(&mut self) -> PResult<Vec<Stmt>> {
@@ -764,7 +883,10 @@ impl<'a> Parser<'a> {
             self.bump();
             let rhs = self.expr()?;
             self.expect(Tok::Semi, "\";\" after the assignment")?;
-            return Ok(Stmt { kind: StmtKind::Assign { lhs, op, rhs }, span: start.to(self.prev_span()) });
+            return Ok(Stmt {
+                kind: StmtKind::Assign { lhs, op, rhs },
+                span: start.to(self.prev_span()),
+            });
         }
         if self.eat(&Tok::Tilde) {
             let dist = self.identifier()?;
@@ -773,9 +895,17 @@ impl<'a> Parser<'a> {
             let truncation = if self.peek() == &Tok::Truncate && self.peek_at(1) == &Tok::LBrack {
                 self.bump();
                 self.bump();
-                let lo = if self.peek() == &Tok::Comma { None } else { Some(self.expr()?) };
+                let lo = if self.peek() == &Tok::Comma {
+                    None
+                } else {
+                    Some(self.expr()?)
+                };
                 self.expect(Tok::Comma, "\",\" in the truncation")?;
-                let hi = if self.peek() == &Tok::RBrack { None } else { Some(self.expr()?) };
+                let hi = if self.peek() == &Tok::RBrack {
+                    None
+                } else {
+                    Some(self.expr()?)
+                };
                 self.expect(Tok::RBrack, "\"]\" to close the truncation")?;
                 match (lo, hi) {
                     (Some(a), Some(b)) => Truncation::Between(a, b),
@@ -788,21 +918,32 @@ impl<'a> Parser<'a> {
             };
             self.expect(Tok::Semi, "\";\" after the distribution statement")?;
             return Ok(Stmt {
-                kind: StmtKind::Tilde { arg: e, dist, args, truncation },
+                kind: StmtKind::Tilde {
+                    arg: e,
+                    dist,
+                    args,
+                    truncation,
+                },
                 span: start.to(self.prev_span()),
             });
         }
         if self.peek() == &Tok::Semi {
             if let ExprKind::FunApp(name, args) = &e.kind {
                 self.bump();
-                return Ok(Stmt { kind: StmtKind::NRFunApp(name.clone(), args.clone()), span: start.to(self.prev_span()) });
+                return Ok(Stmt {
+                    kind: StmtKind::NRFunApp(name.clone(), args.clone()),
+                    span: start.to(self.prev_span()),
+                });
             }
             if let ExprKind::CondDistApp(name, args) = &e.kind
                 && args.len() == 1
             {
                 // `foo_lpdf(x);` with no bar parses as a plain call statement in stanc3.
                 self.bump();
-                return Ok(Stmt { kind: StmtKind::NRFunApp(name.clone(), args.clone()), span: start.to(self.prev_span()) });
+                return Ok(Stmt {
+                    kind: StmtKind::NRFunApp(name.clone(), args.clone()),
+                    span: start.to(self.prev_span()),
+                });
             }
             return Err(Diagnostic::new(
                 DiagnosticKind::Syntax,
@@ -837,7 +978,10 @@ impl<'a> Parser<'a> {
             self.expect(Tok::Colon, "\":\" in the conditional expression")?;
             let b = self.expr()?;
             let span = cond.span.to(b.span);
-            return Ok(Expr { kind: ExprKind::TernaryIf(Box::new(cond), Box::new(a), Box::new(b)), span });
+            return Ok(Expr {
+                kind: ExprKind::TernaryIf(Box::new(cond), Box::new(a), Box::new(b)),
+                span,
+            });
         }
         Ok(cond)
     }
@@ -851,14 +995,18 @@ impl<'a> Parser<'a> {
             return self.prefix();
         }
         let mut lhs = self.binary(level + 1)?;
-        loop {
-            let Some(op) = BINARY_LEVELS[level].iter().find(|(t, _)| t == self.peek()).map(|(_, o)| *o) else {
-                break;
-            };
+        while let Some(op) = BINARY_LEVELS[level]
+            .iter()
+            .find(|(t, _)| t == self.peek())
+            .map(|(_, o)| *o)
+        {
             self.bump();
             let rhs = self.binary(level + 1)?;
             let span = lhs.span.to(rhs.span);
-            lhs = Expr { kind: ExprKind::BinOp(Box::new(lhs), op, Box::new(rhs)), span };
+            lhs = Expr {
+                kind: ExprKind::BinOp(Box::new(lhs), op, Box::new(rhs)),
+                span,
+            };
         }
         Ok(lhs)
     }
@@ -873,7 +1021,10 @@ impl<'a> Parser<'a> {
         let start = self.bump().span;
         let e = self.prefix()?;
         let span = start.to(e.span);
-        Ok(Expr { kind: ExprKind::PrefixOp(op, Box::new(e)), span })
+        Ok(Expr {
+            kind: ExprKind::PrefixOp(op, Box::new(e)),
+            span,
+        })
     }
 
     fn power(&mut self) -> PResult<Expr> {
@@ -886,7 +1037,10 @@ impl<'a> Parser<'a> {
         self.bump();
         let rhs = self.prefix()?;
         let span = base.span.to(rhs.span);
-        Ok(Expr { kind: ExprKind::BinOp(Box::new(base), op, Box::new(rhs)), span })
+        Ok(Expr {
+            kind: ExprKind::BinOp(Box::new(base), op, Box::new(rhs)),
+            span,
+        })
     }
 
     fn postfix(&mut self) -> PResult<Expr> {
@@ -894,7 +1048,10 @@ impl<'a> Parser<'a> {
         while self.peek() == &Tok::Transpose {
             let end = self.bump().span;
             let span = e.span.to(end);
-            e = Expr { kind: ExprKind::Transpose(Box::new(e)), span };
+            e = Expr {
+                kind: ExprKind::Transpose(Box::new(e)),
+                span,
+            };
         }
         Ok(e)
     }
@@ -908,41 +1065,70 @@ impl<'a> Parser<'a> {
                     self.bump();
                     if self.peek() == &Tok::RParen {
                         self.bump();
-                        Expr { kind: ExprKind::FunApp(id, vec![]), span: start.to(self.prev_span()) }
+                        Expr {
+                            kind: ExprKind::FunApp(id, vec![]),
+                            span: start.to(self.prev_span()),
+                        }
                     } else {
                         let first = self.expr()?;
                         if self.eat(&Tok::Bar) {
                             let mut args = vec![first];
                             args.extend(self.expr_list(Tok::RParen)?);
-                            Expr { kind: ExprKind::CondDistApp(id, args), span: start.to(self.prev_span()) }
+                            Expr {
+                                kind: ExprKind::CondDistApp(id, args),
+                                span: start.to(self.prev_span()),
+                            }
                         } else {
                             let mut args = vec![first];
                             if self.eat(&Tok::Comma) {
                                 args.extend(self.expr_list(Tok::RParen)?);
                             } else {
-                                self.expect(Tok::RParen, "\",\", \"|\" or \")\" in the argument list")?;
+                                self.expect(
+                                    Tok::RParen,
+                                    "\",\", \"|\" or \")\" in the argument list",
+                                )?;
                             }
-                            let cond = args.len() == 1 && CONDITIONING_SUFFIXES.iter().any(|s| id.name.ends_with(s));
-                            let kind = if cond { ExprKind::CondDistApp(id, args) } else { ExprKind::FunApp(id, args) };
-                            Expr { kind, span: start.to(self.prev_span()) }
+                            let cond = args.len() == 1
+                                && CONDITIONING_SUFFIXES.iter().any(|s| id.name.ends_with(s));
+                            let kind = if cond {
+                                ExprKind::CondDistApp(id, args)
+                            } else {
+                                ExprKind::FunApp(id, args)
+                            };
+                            Expr {
+                                kind,
+                                span: start.to(self.prev_span()),
+                            }
                         }
                     }
                 } else {
                     let span = id.span;
-                    Expr { kind: ExprKind::Variable(id), span }
+                    Expr {
+                        kind: ExprKind::Variable(id),
+                        span,
+                    }
                 }
             }
             Tok::IntLit(s) => {
                 self.bump();
-                Expr { kind: ExprKind::IntNumeral(s), span: start }
+                Expr {
+                    kind: ExprKind::IntNumeral(s),
+                    span: start,
+                }
             }
             Tok::RealLit(s) | Tok::DotNumeral(s) => {
                 self.bump();
-                Expr { kind: ExprKind::RealNumeral(s), span: start }
+                Expr {
+                    kind: ExprKind::RealNumeral(s),
+                    span: start,
+                }
             }
             Tok::ImagLit(s) => {
                 self.bump();
-                Expr { kind: ExprKind::ImagNumeral(s), span: start }
+                Expr {
+                    kind: ExprKind::ImagNumeral(s),
+                    span: start,
+                }
             }
             Tok::LBrace => {
                 self.bump();
@@ -950,18 +1136,27 @@ impl<'a> Parser<'a> {
                     return self.error("Ill-formed expression. Array expressions must contain at least one element.");
                 }
                 let xs = self.expr_list(Tok::RBrace)?;
-                Expr { kind: ExprKind::ArrayExpr(xs), span: start.to(self.prev_span()) }
+                Expr {
+                    kind: ExprKind::ArrayExpr(xs),
+                    span: start.to(self.prev_span()),
+                }
             }
             Tok::LBrack => {
                 self.bump();
                 let xs = self.expr_list(Tok::RBrack)?;
-                Expr { kind: ExprKind::RowVectorExpr(xs), span: start.to(self.prev_span()) }
+                Expr {
+                    kind: ExprKind::RowVectorExpr(xs),
+                    span: start.to(self.prev_span()),
+                }
             }
             Tok::Target => {
                 self.bump();
                 self.expect(Tok::LParen, "\"(\" after \"target\"")?;
                 self.expect(Tok::RParen, "\")\"")?;
-                Expr { kind: ExprKind::GetTarget, span: start.to(self.prev_span()) }
+                Expr {
+                    kind: ExprKind::GetTarget,
+                    span: start.to(self.prev_span()),
+                }
             }
             Tok::LParen => {
                 self.bump();
@@ -969,10 +1164,16 @@ impl<'a> Parser<'a> {
                 if self.eat(&Tok::Comma) {
                     let mut xs = vec![first];
                     xs.extend(self.expr_list(Tok::RParen)?);
-                    Expr { kind: ExprKind::TupleExpr(xs), span: start.to(self.prev_span()) }
+                    Expr {
+                        kind: ExprKind::TupleExpr(xs),
+                        span: start.to(self.prev_span()),
+                    }
                 } else {
                     self.expect(Tok::RParen, "\")\" or \",\"")?;
-                    Expr { kind: ExprKind::Paren(Box::new(first)), span: start.to(self.prev_span()) }
+                    Expr {
+                        kind: ExprKind::Paren(Box::new(first)),
+                        span: start.to(self.prev_span()),
+                    }
                 }
             }
             t => {
@@ -989,21 +1190,35 @@ impl<'a> Parser<'a> {
                 Tok::LBrack => {
                     self.bump();
                     let idx = self.indexes()?;
-                    e = Expr { kind: ExprKind::Indexed(Box::new(e), idx), span: start.to(self.prev_span()) };
+                    e = Expr {
+                        kind: ExprKind::Indexed(Box::new(e), idx),
+                        span: start.to(self.prev_span()),
+                    };
                 }
                 Tok::DotNumeral(s) => {
                     let slot_span = self.span();
                     let digits: String = s[1..].chars().filter(|c| *c != '_').collect();
                     // stanc3 parses with OCaml's 63-bit int.
-                    let Some(slot) = digits.parse::<u64>().ok().filter(|v| *v < (1 << 62)).map(|v| v as usize) else {
+                    let Some(slot) = digits
+                        .parse::<u64>()
+                        .ok()
+                        .filter(|v| *v < (1 << 62))
+                        .map(|v| v as usize)
+                    else {
                         return Err(Diagnostic::new(
                             DiagnosticKind::Syntax,
                             slot_span,
-                            format!("Ill-formed index. Failed to parse integer from string \"{}\" in tuple index.", &s[1..]),
+                            format!(
+                                "Ill-formed index. Failed to parse integer from string \"{}\" in tuple index.",
+                                &s[1..]
+                            ),
                         ));
                     };
                     self.bump();
-                    e = Expr { kind: ExprKind::TupleProjection(Box::new(e), slot), span: start.to(self.prev_span()) };
+                    e = Expr {
+                        kind: ExprKind::TupleProjection(Box::new(e), slot),
+                        span: start.to(self.prev_span()),
+                    };
                 }
                 _ => break,
             }
@@ -1018,7 +1233,11 @@ impl<'a> Parser<'a> {
                 Tok::Comma | Tok::RBrack => Index::All,
                 Tok::Colon => {
                     self.bump();
-                    if matches!(self.peek(), Tok::Comma | Tok::RBrack) { Index::All } else { Index::Downfrom(self.expr()?) }
+                    if matches!(self.peek(), Tok::Comma | Tok::RBrack) {
+                        Index::All
+                    } else {
+                        Index::Downfrom(self.expr()?)
+                    }
                 }
                 _ => {
                     let a = self.expr()?;
@@ -1061,7 +1280,9 @@ pub fn lvalue_of_expr(e: &Expr) -> Option<LValue> {
             }
             LValueKind::TupleProjection(Box::new(l), *k)
         }
-        ExprKind::TupleExpr(xs) => LValueKind::Tuple(xs.iter().map(lvalue_of_expr).collect::<Option<_>>()?),
+        ExprKind::TupleExpr(xs) => {
+            LValueKind::Tuple(xs.iter().map(lvalue_of_expr).collect::<Option<_>>()?)
+        }
         _ => return None,
     };
     Some(LValue { kind, span: e.span })

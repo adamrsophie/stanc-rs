@@ -266,6 +266,8 @@ pub enum UnsizedType {
     Tuple(Vec<UnsizedType>),
     /// A function value (higher-order arguments of built-ins).
     Function(Box<FunctionType>),
+    /// A Stan Math library function used as a value.
+    MathLibraryFunction,
 }
 
 /// The type of a function value.
@@ -275,6 +277,44 @@ pub struct FunctionType {
     pub ret: Option<UnsizedType>,
     /// Argument autodiff levels and types.
     pub args: Vec<(AdLevel, UnsizedType)>,
+    /// Kind of function, from its name suffix.
+    pub suffix: FnSuffix,
+}
+
+/// Function kinds determined by the name suffix (normalized: `_lupdf` counts as `_lpdf`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FnSuffix {
+    /// No special suffix.
+    Plain,
+    /// `_lpdf` or `_lupdf`.
+    Lpdf,
+    /// `_lpmf` or `_lupmf`.
+    Lpmf,
+    /// `_rng`.
+    Rng,
+    /// `_lp`.
+    Lp,
+    /// `_jacobian`.
+    Jacobian,
+}
+
+impl FnSuffix {
+    /// The kind of a function with this name.
+    pub fn from_name(name: &str) -> FnSuffix {
+        if name.ends_with("_lpdf") || name.ends_with("_lupdf") {
+            FnSuffix::Lpdf
+        } else if name.ends_with("_lpmf") || name.ends_with("_lupmf") {
+            FnSuffix::Lpmf
+        } else if name.ends_with("_rng") {
+            FnSuffix::Rng
+        } else if name.ends_with("_lp") {
+            FnSuffix::Lp
+        } else if name.ends_with("_jacobian") {
+            FnSuffix::Jacobian
+        } else {
+            FnSuffix::Plain
+        }
+    }
 }
 
 /// Whether a value may carry derivatives.
@@ -331,6 +371,7 @@ impl std::fmt::Display for UnsizedType {
                 }
                 write!(f, ")")
             }
+            MathLibraryFunction => write!(f, "Stan Math function"),
             Function(ft) => {
                 write!(f, "(")?;
                 for (i, (ad, t)) in ft.args.iter().enumerate() {
@@ -383,7 +424,9 @@ impl SizedType {
             SizedType::ComplexRowVector(_) => UnsizedType::ComplexRowVector,
             SizedType::ComplexMatrix(..) => UnsizedType::ComplexMatrix,
             SizedType::Array(t, _) => UnsizedType::Array(Box::new(t.unsized_type())),
-            SizedType::Tuple(ts) => UnsizedType::Tuple(ts.iter().map(|t| t.unsized_type()).collect()),
+            SizedType::Tuple(ts) => {
+                UnsizedType::Tuple(ts.iter().map(|t| t.unsized_type()).collect())
+            }
         }
     }
 
@@ -391,7 +434,10 @@ impl SizedType {
     pub fn size_exprs(&self) -> Vec<&Expr> {
         match self {
             SizedType::Int | SizedType::Real | SizedType::Complex | SizedType::Tuple(_) => vec![],
-            SizedType::Vector(e) | SizedType::RowVector(e) | SizedType::ComplexVector(e) | SizedType::ComplexRowVector(e) => {
+            SizedType::Vector(e)
+            | SizedType::RowVector(e)
+            | SizedType::ComplexVector(e)
+            | SizedType::ComplexRowVector(e) => {
                 vec![e]
             }
             SizedType::Matrix(a, b) | SizedType::ComplexMatrix(a, b) => vec![a, b],
@@ -461,7 +507,11 @@ pub struct Stmt {
 /// Statement forms.
 #[derive(Clone, Debug, PartialEq)]
 pub enum StmtKind {
-    Assign { lhs: LValue, op: AssignOp, rhs: Expr },
+    Assign {
+        lhs: LValue,
+        op: AssignOp,
+        rhs: Expr,
+    },
     /// Function call used as a statement.
     NRFunApp(Ident, Vec<Expr>),
     TargetPlusAssign(Expr),
@@ -474,15 +524,39 @@ pub enum StmtKind {
     FatalError(Vec<Printable>),
     /// `;`
     Skip,
-    Tilde { arg: Expr, dist: Ident, args: Vec<Expr>, truncation: Truncation },
+    Tilde {
+        arg: Expr,
+        dist: Ident,
+        args: Vec<Expr>,
+        truncation: Truncation,
+    },
     IfThenElse(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),
-    For { var: Ident, lower: Expr, upper: Expr, body: Box<Stmt> },
-    ForEach { var: Ident, iter: Expr, body: Box<Stmt> },
+    For {
+        var: Ident,
+        lower: Expr,
+        upper: Expr,
+        body: Box<Stmt>,
+    },
+    ForEach {
+        var: Ident,
+        iter: Expr,
+        body: Box<Stmt>,
+    },
     Profile(String, Vec<Stmt>),
     Block(Vec<Stmt>),
-    VarDecl { ty: SizedType, trans: Transformation, vars: Vec<DeclVar>, is_global: bool },
-    FunDef { ret: Option<UnsizedType>, name: Ident, args: Vec<FunArg>, body: Box<Stmt> },
+    VarDecl {
+        ty: SizedType,
+        trans: Transformation,
+        vars: Vec<DeclVar>,
+        is_global: bool,
+    },
+    FunDef {
+        ret: Option<UnsizedType>,
+        name: Ident,
+        args: Vec<FunArg>,
+        body: Box<Stmt>,
+    },
 }
 
 /// A program block.
@@ -514,7 +588,10 @@ impl Program {
             ("data", self.data.as_ref()),
             ("transformed data", self.transformed_data.as_ref()),
             ("parameters", self.parameters.as_ref()),
-            ("transformed parameters", self.transformed_parameters.as_ref()),
+            (
+                "transformed parameters",
+                self.transformed_parameters.as_ref(),
+            ),
             ("model", self.model.as_ref()),
             ("generated quantities", self.generated_quantities.as_ref()),
         ]
@@ -522,4 +599,6 @@ impl Program {
 }
 
 /// Distribution suffixes that make a one-argument call a conditional application.
-pub const CONDITIONING_SUFFIXES: &[&str] = &["_lpdf", "_lupdf", "_lpmf", "_lupmf", "_cdf", "_lcdf", "_lccdf"];
+pub const CONDITIONING_SUFFIXES: &[&str] = &[
+    "_lpdf", "_lupdf", "_lpmf", "_lupmf", "_cdf", "_lcdf", "_lccdf",
+];

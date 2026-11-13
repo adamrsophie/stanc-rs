@@ -16,7 +16,11 @@ pub struct Span {
 impl Span {
     /// Creates a span.
     pub fn new(file: u32, start: usize, end: usize) -> Self {
-        Span { file, start: start as u32, end: end as u32 }
+        Span {
+            file,
+            start: start as u32,
+            end: end as u32,
+        }
     }
 
     /// The smallest span covering `self` and `other` (same file assumed; otherwise `self`).
@@ -24,7 +28,11 @@ impl Span {
         if self.file != other.file {
             return self;
         }
-        Span { file: self.file, start: self.start.min(other.start), end: self.end.max(other.end) }
+        Span {
+            file: self.file,
+            start: self.start.min(other.start),
+            end: self.end.max(other.end),
+        }
     }
 }
 
@@ -48,7 +56,11 @@ impl SourceFile {
                 line_starts.push(i + 1);
             }
         }
-        SourceFile { name: name.into(), text, line_starts }
+        SourceFile {
+            name: name.into(),
+            text,
+            line_starts,
+        }
     }
 
     /// One-based line and column (in characters) of a byte offset.
@@ -66,7 +78,11 @@ impl SourceFile {
     /// Text of a one-based line without its terminator.
     pub fn line_text(&self, line: usize) -> &str {
         let start = self.line_starts[line - 1];
-        let end = self.line_starts.get(line).copied().unwrap_or(self.text.len());
+        let end = self
+            .line_starts
+            .get(line)
+            .copied()
+            .unwrap_or(self.text.len());
         self.text[start..end].trim_end_matches(['\n', '\r'])
     }
 }
@@ -98,7 +114,9 @@ impl SourceMap {
 
     /// One-based line and column of the start of a span.
     pub fn line_col(&self, span: Span) -> Option<(usize, usize)> {
-        self.files.get(span.file as usize).map(|f| f.line_col(span.start as usize))
+        self.files
+            .get(span.file as usize)
+            .map(|f| f.line_col(span.start as usize))
     }
 }
 
@@ -151,12 +169,22 @@ pub struct Diagnostic {
 impl Diagnostic {
     /// Creates a diagnostic with a location.
     pub fn new(kind: DiagnosticKind, span: Span, message: impl Into<String>) -> Self {
-        Diagnostic { kind, message: message.into(), span: Some(span), notes: Vec::new() }
+        Diagnostic {
+            kind,
+            message: message.into(),
+            span: Some(span),
+            notes: Vec::new(),
+        }
     }
 
     /// Creates a diagnostic without a location.
     pub fn global(kind: DiagnosticKind, message: impl Into<String>) -> Self {
-        Diagnostic { kind, message: message.into(), span: None, notes: Vec::new() }
+        Diagnostic {
+            kind,
+            message: message.into(),
+            span: None,
+            notes: Vec::new(),
+        }
     }
 
     /// Adds a note.
@@ -173,19 +201,32 @@ impl Diagnostic {
     /// Renders the diagnostic with a source excerpt and a caret line.
     pub fn render(&self, sources: &SourceMap) -> String {
         let mut out = String::new();
-        let span = self.span.and_then(|s| sources.files.get(s.file as usize).map(|f| (s, f)));
+        let span = self
+            .span
+            .and_then(|s| sources.files.get(s.file as usize).map(|f| (s, f)));
         match span {
             Some((s, f)) => {
                 let (line, col) = f.line_col(s.start as usize);
                 // Columns are zero-based in messages, as in stanc3.
-                let _ = writeln!(out, "{} in '{}', line {}, column {}:", self.kind.label(), f.name, line, col - 1);
+                let _ = writeln!(
+                    out,
+                    "{} in '{}', line {}, column {}:",
+                    self.kind.label(),
+                    f.name,
+                    line,
+                    col - 1
+                );
                 let first = line.saturating_sub(2).max(1);
                 let _ = writeln!(out, "   -------------------------------------------------");
                 for l in first..=line {
                     let _ = writeln!(out, "{:>5}:  {}", l, f.line_text(l));
                 }
                 let (end_line, end_col) = f.line_col((s.end as usize).max(s.start as usize));
-                let width = if end_line == line { end_col.saturating_sub(col).max(1) } else { 1 };
+                let width = if end_line == line {
+                    end_col.saturating_sub(col).max(1)
+                } else {
+                    1
+                };
                 let _ = writeln!(out, "         {}{}", " ".repeat(col - 1), "^".repeat(width));
                 let _ = writeln!(out, "   -------------------------------------------------");
                 let _ = writeln!(out);

@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
+name = "stanc-rs-semantic"
+version = "0.1.0"
+dependencies = [
+ "stanc-rs-syntax",
+]
+
+[[package]]
 name = "stanc-rs-syntax"
 version = "0.1.0"

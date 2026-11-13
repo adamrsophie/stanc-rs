@@ -1,0 +1,15 @@
+[package]
+name = "stanc-rs-semantic"
+description = "Type checking, semantic analysis, and the typed intermediate representation of Stan programs for stanc-rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+stanc-rs-syntax.workspace = true
+
+[lints]
+workspace = true

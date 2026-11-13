@@ -261,7 +261,12 @@ fn write_decl_type(out: &mut String, ty: &SizedType, trans: &Transformation) {
     if let Some(name) = special {
         out.push_str(&name);
         let sizes: Vec<Expr> = match (trans, ty) {
-            (Transformation::CholeskyCorr | Transformation::Correlation | Transformation::Covariance, SizedType::Matrix(a, _)) => {
+            (
+                Transformation::CholeskyCorr
+                | Transformation::Correlation
+                | Transformation::Covariance,
+                SizedType::Matrix(a, _),
+            ) => {
                 vec![a.clone()]
             }
             _ => ty.size_exprs().into_iter().cloned().collect(),
@@ -284,7 +289,11 @@ fn write_decl_type(out: &mut String, ty: &SizedType, trans: &Transformation) {
         SizedType::Tuple(ts) => {
             out.push_str("tuple(");
             let empty = Vec::new();
-            let trs = if let Transformation::Tuple(trs) = trans { trs } else { &empty };
+            let trs = if let Transformation::Tuple(trs) = trans {
+                trs
+            } else {
+                &empty
+            };
             for (i, t) in ts.iter().enumerate() {
                 if i > 0 {
                     out.push_str(", ");
@@ -354,7 +363,12 @@ fn stmt(out: &mut String, s: &Stmt, depth: usize) {
             out.push_str(");\n");
         }
         StmtKind::Skip => out.push_str(";\n"),
-        StmtKind::Tilde { arg, dist, args, truncation } => {
+        StmtKind::Tilde {
+            arg,
+            dist,
+            args,
+            truncation,
+        } => {
             write_expr(out, arg);
             let _ = write!(out, " ~ {}(", dist.name);
             list(out, args);
@@ -398,10 +412,15 @@ fn stmt(out: &mut String, s: &Stmt, depth: usize) {
             out.push_str(")\n");
             stmt(out, body, depth + 1);
         }
-        StmtKind::For { var, lower, upper, body } => {
+        StmtKind::For {
+            var,
+            lower,
+            upper,
+            body,
+        } => {
             let _ = write!(out, "for ({} in ", var.name);
             write_expr(out, lower);
-            out.push_str(":");
+            out.push(':');
             write_expr(out, upper);
             out.push_str(")\n");
             stmt(out, body, depth + 1);
@@ -428,7 +447,9 @@ fn stmt(out: &mut String, s: &Stmt, depth: usize) {
             indent(out, depth);
             out.push_str("}\n");
         }
-        StmtKind::VarDecl { ty, trans, vars, .. } => {
+        StmtKind::VarDecl {
+            ty, trans, vars, ..
+        } => {
             write_decl_type(out, ty, trans);
             out.push(' ');
             for (i, v) in vars.iter().enumerate() {
@@ -443,7 +464,12 @@ fn stmt(out: &mut String, s: &Stmt, depth: usize) {
             }
             out.push_str(";\n");
         }
-        StmtKind::FunDef { ret, name, args, body } => {
+        StmtKind::FunDef {
+            ret,
+            name,
+            args,
+            body,
+        } => {
             match ret {
                 Some(t) => out.push_str(&t.to_string()),
                 None => out.push_str("void"),

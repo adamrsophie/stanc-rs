@@ -39,7 +39,11 @@ pub fn parse_with(
     let mut sources = SourceMap::default();
     let file = sources.add(SourceFile::new(name, text));
     let (tokens, lex_error) = lexer::tokenize_partial(&mut sources, file, resolver);
-    let r = if functions_only { parser::parse_functions_only(&tokens) } else { parser::parse_program(&tokens) };
+    let r = if functions_only {
+        parser::parse_functions_only(&tokens)
+    } else {
+        parser::parse_program(&tokens)
+    };
     let eof = tokens.last().map(|t| t.span);
     match (r, lex_error) {
         (Ok(p), None) => Ok((p, sources)),
