@@ -290,12 +290,102 @@ impl Gen {
         if matches!(truncation, TTruncation::None) {
             return Ok(());
         }
-        if !matches!(arg.ty, U::Int | U::Real) {
-            return Err(unsupported(
-                s.span,
-                "truncation of a non-scalar outcome is not supported by stanc-rs yet",
-            ));
+        if matches!(arg.ty, U::Int | U::Real) {
+            return self.truncate(s, arg, dist, kind, args, truncation, &ad);
         }
+        // A container outcome is truncated element by element: bind every container operand to a
+        // local and index it in a loop.
+        let elem = |t: &U| match t {
+            U::Vector | U::RowVector => Some(U::Real),
+            U::Array(t) if matches!(**t, U::Int | U::Real) => Some((**t).clone()),
+            _ => None,
+        };
+        let mut ops = vec![arg.clone()];
+        ops.extend(args.iter().cloned());
+        let bounds: Vec<TExpr> = match truncation {
+            TTruncation::UpFrom(l) => vec![l.clone()],
+            TTruncation::DownFrom(u) => vec![u.clone()],
+            TTruncation::Between(l, u) => vec![l.clone(), u.clone()],
+            TTruncation::None => vec![],
+        };
+        ops.extend(bounds);
+        let i = self.fresh("i");
+        let mut lens = Vec::new();
+        let mut scalars = Vec::new();
+        self.line("{");
+        self.indent += 1;
+        for op in &ops {
+            if matches!(op.ty, U::Int | U::Real) {
+                scalars.push(op.clone());
+                continue;
+            }
+            let Some(et) = elem(&op.ty) else {
+                return Err(unsupported(
+                    s.span,
+                    "truncation of this outcome type is not supported by stanc-rs yet",
+                ));
+            };
+            let t = self.fresh("t");
+            let c = self.expr(op)?;
+            self.line(&format!("let {t} = {c};"));
+            lens.push(format!("{t}.len()"));
+            let var = TExpr {
+                kind: TExprKind::Variable {
+                    name: t,
+                    origin: stanc_rs_semantic::typed::Origin::Model,
+                    global: false,
+                },
+                ..op.clone()
+            };
+            let idx = TExpr {
+                kind: TExprKind::Variable {
+                    name: i.clone(),
+                    origin: stanc_rs_semantic::typed::Origin::Model,
+                    global: false,
+                },
+                ty: U::Int,
+                ad: Ad::DataOnly,
+                span: op.span,
+            };
+            scalars.push(TExpr {
+                kind: TExprKind::Indexed(Box::new(var), vec![TIndex::Single(idx)]),
+                ty: et,
+                ..op.clone()
+            });
+        }
+        self.line(&format!(
+            "for {i} in 1..=(rt::stan::common_len(\"truncation\", &[{}])? as i64) {{",
+            lens.join(", ")
+        ));
+        self.indent += 1;
+        let n_args = args.len();
+        let (y, rest) = scalars.split_first().expect("outcome");
+        let (eargs, ebounds) = rest.split_at(n_args);
+        let etrunc = match truncation {
+            TTruncation::UpFrom(_) => TTruncation::UpFrom(ebounds[0].clone()),
+            TTruncation::DownFrom(_) => TTruncation::DownFrom(ebounds[0].clone()),
+            _ => TTruncation::Between(ebounds[0].clone(), ebounds[1].clone()),
+        };
+        self.truncate(s, y, dist, kind, eargs, &etrunc, &ad)?;
+        self.indent -= 1;
+        self.line("}");
+        self.indent -= 1;
+        self.line("}");
+        Ok(())
+    }
+
+    /// Emits the truncation term of `arg ~ dist(args) T[...]` for a scalar `arg`.
+    #[allow(clippy::too_many_arguments)]
+    fn truncate(
+        &mut self,
+        s: &TStmt,
+        arg: &TExpr,
+        dist: &str,
+        kind: &FunKind,
+        args: &[TExpr],
+        truncation: &TTruncation,
+        ad: &Ad,
+    ) -> R<()> {
         let base = dist.trim_end_matches("_lpdf").trim_end_matches("_lpmf");
         let discrete = dist.ends_with("_lpmf");
         let cdf = |g: &mut Gen, which: &str, bound: &TExpr| -> R<String> {

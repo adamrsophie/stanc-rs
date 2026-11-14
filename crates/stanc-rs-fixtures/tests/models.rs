@@ -609,3 +609,31 @@ fn tuple_parameters() {
         assert_close(*x, t, 1e-12);
     }
 }
+
+// A truncated container outcome subtracts each element's normalizing term.
+#[test]
+fn vector_truncation() {
+    let m = fx::vector_truncate::Model::new(&data(r#"{"y": [0.5, -0.2, 1.4]}"#), 0).unwrap();
+    // The standard normal CDF from the Taylor series of erf, accurate on |x| < 3.
+    fn erf(x: f64) -> f64 {
+        let mut sum = x;
+        let mut term = x;
+        for n in 1..200 {
+            term *= -x * x / n as f64;
+            sum += term / (2 * n + 1) as f64;
+        }
+        2.0 / std::f64::consts::PI.sqrt() * sum
+    }
+    let phi = |z: f64| 0.5 * (1.0 + erf(z / std::f64::consts::SQRT_2));
+    let y = [0.5, -0.2, 1.4];
+    let mu: [f64; 3] = [0.1, -0.4, 0.8];
+    let mut expected = 0.0;
+    for k in 0..3 {
+        let lp = normal_lpdf(y[k], mu[k], 1.0);
+        let (lo, hi) = (phi(-1.0 - mu[k]), phi(2.0 - mu[k]));
+        expected += 3.0 * lp - (1.0 - lo).ln() - hi.ln() - (hi - lo).ln();
+    }
+    let (lp, _) = m.log_density_gradient(&mu, FULL).unwrap();
+    assert_close(lp, expected, 1e-12);
+    check_gradient(&m, &mu, FULL);
+}
