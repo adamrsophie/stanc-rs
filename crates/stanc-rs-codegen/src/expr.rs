@@ -1260,6 +1260,57 @@ impl Gen {
                 let shape = Shape::of(t);
                 self.map_shape(&v, &shape, &mut |_, x| format!("rt::generic::cabs(&{x})"))?
             }
+            ("pow", [a, b])
+                if [a, b]
+                    .iter()
+                    .all(|t| matches!(t, U::Int | U::Real | U::Complex))
+                    && [a, b].iter().any(|t| ***t == U::Complex) =>
+            {
+                let x = self.expr_as(&args[0], &U::Complex, &e.ad)?;
+                let y = self.expr_as(&args[1], &U::Complex, &e.ad)?;
+                format!("({x}).pow({y})")
+            }
+            ("pow", [a, t @ U::Array(_)])
+                if matches!(a, U::Int | U::Real | U::Complex) && leaf_scalar(t) == U::Complex =>
+            {
+                let x = self.expr_as(&args[0], &U::Complex, &e.ad)?;
+                let v = at(self, 1)?;
+                let shape = Shape::of(t);
+                let b = self.fresh("b");
+                let m = self.map_shape(&v, &shape, &mut |_, z| format!("{b}.pow({z})"))?;
+                format!("{{ let {b} = {x}; {m} }}")
+            }
+            ("pow", [t @ U::Array(_), a])
+                if matches!(a, U::Int | U::Real | U::Complex) && leaf_scalar(t) == U::Complex =>
+            {
+                let y = self.expr_as(&args[1], &U::Complex, &e.ad)?;
+                let v = at(self, 0)?;
+                let shape = Shape::of(t);
+                let b = self.fresh("b");
+                let m = self.map_shape(&v, &shape, &mut |_, z| format!("({z}).pow({b})"))?;
+                format!("{{ let {b} = {y}; {m} }}")
+            }
+            ("trace_quad_form", [U::Matrix, U::Vector]) => {
+                let (a, v) = (at(self, 0)?, at(self, 1)?);
+                format!("sm::trace_quad_form(&{a}, &rt::generic::as_col(&{v}))?")
+            }
+            ("to_matrix", [U::Matrix | U::ComplexMatrix, U::Int, U::Int, U::Int]) => {
+                let m = at(self, 0)?;
+                let (r, c, cm) = (
+                    self.expr(&args[1])?,
+                    self.expr(&args[2])?,
+                    self.expr(&args[3])?,
+                );
+                format!(
+                    "{{ let x__ = ({m}).as_slice().to_vec(); let (r__, c__) = (rt::stan::usize_of({r})?, rt::stan::usize_of({c})?); if {cm} != 0 {{ sm::to_matrix(&x__, r__, c__)? }} else {{ sm::to_matrix_row_major(&x__, r__, c__)? }} }}"
+                )
+            }
+            ("to_array_1d", [U::ComplexVector | U::ComplexRowVector]) => {
+                format!("({}).clone()", at(self, 0)?)
+            }
+            ("to_array_1d", [U::ComplexMatrix]) => {
+                format!("({}).as_slice().to_vec()", at(self, 0)?)
+            }
             ("abs", [U::ComplexVector | U::ComplexRowVector]) => {
                 format!(
                     "({}).iter().map(rt::generic::cabs).collect::<Vec<_>>()",

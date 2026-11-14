@@ -694,4 +694,14 @@ fn library_functions() {
     assert_close(at("mv.1"), 5.0 + 18.0, 0.0);
     assert_close(at("mv.2"), 14.0, 0.0);
     assert_close(at("sq"), 4.0, 0.0);
+    // i^2 = -1.
+    assert_close(at("pw.real"), -1.0, 1e-15);
+    assert_close(at("pw.imag"), 0.0, 1e-15);
+    // [1 2] [[2, 1], [0, 3]] [1 2]' = 2 + 2 + 12.
+    assert_close(at("tqf"), 16.0, 0.0);
+    // Column-major elements 1, 4, 2, 5, 3, 6 filled by rows.
+    for (k, v) in [1.0, 4.0, 2.0, 5.0, 3.0, 6.0].into_iter().enumerate() {
+        assert_close(at(&format!("rs.{}.{}", k / 2 + 1, k % 2 + 1)), v, 0.0);
+    }
+    assert_close(at("a1.2.imag"), 0.4, 0.0);
 }

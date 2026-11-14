@@ -18,4 +18,8 @@ generated quantities {
   matrix[2, 3] dense = csr_to_dense_matrix(2, 3, [5, 6, 7]', {1, 3, 2}, {1, 3, 4});
   vector[2] mv = csr_matrix_times_vector(2, 3, [5, 6, 7]', {1, 3, 2}, {1, 3, 4}, w);
   real sq = squared_distance(1.5, -0.5);
+  complex pw = pow(to_complex(0, 1), to_complex(2, 0));
+  real tqf = trace_quad_form([[2, 1], [0, 3]], [1, 2]');
+  matrix[3, 2] rs = to_matrix([[1, 2, 3], [4, 5, 6]], 3, 2, 0);
+  array[2] complex a1 = to_array_1d(x);
 }
