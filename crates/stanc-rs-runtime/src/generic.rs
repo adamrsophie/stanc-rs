@@ -96,6 +96,11 @@ pub fn sort_desc<T: Clone + PartialOrd>(v: &[T]) -> Vec<T> {
     v
 }
 
+/// Zero-based library positions as Stan's one-based integers.
+pub fn one_based(v: Vec<usize>) -> Vec<i64> {
+    v.into_iter().map(|i| i as i64 + 1).collect()
+}
+
 /// One-based positions that sort `v` in ascending order (stable).
 pub fn sort_indices_asc<T: PartialOrd>(v: &[T]) -> Vec<i64> {
     let mut idx: Vec<usize> = (0..v.len()).collect();

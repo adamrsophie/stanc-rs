@@ -265,6 +265,11 @@ pub fn build<A>(n: usize, mut f: impl FnMut() -> Result<A>) -> Result<Vec<A>> {
     (0..n).map(|_| f()).collect()
 }
 
+/// Builds a vector of `n` elements, computing each from its one-based index.
+pub fn build_at<A>(n: usize, mut f: impl FnMut(i64) -> Result<A>) -> Result<Vec<A>> {
+    (1..=n as i64).map(&mut f).collect()
+}
+
 /// Sum of an integer array.
 pub fn sum_int(x: &[i64]) -> i64 {
     x.iter().sum()

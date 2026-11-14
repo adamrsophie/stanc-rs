@@ -246,10 +246,16 @@ impl Gen {
             ));
         };
         let defs = defs.clone();
-        let Some(def) = defs
-            .iter()
-            .find(|d| d.args.len() == fixed.len() + elems.len())
-        else {
+        // Among overloads, the one whose parameters take theta and then the tuple's elements.
+        let fits = |d: &&crate::UdfDef| {
+            d.args.len() == fixed.len() + elems.len()
+                && d.args[..fixed.len()].iter().all(|a| a.ty == U::Vector)
+                && d.args[fixed.len()..]
+                    .iter()
+                    .zip(&elems)
+                    .all(|(a, e)| promotes(&e.ty, &a.ty))
+        };
+        let Some(def) = defs.iter().find(fits) else {
             return Err(unsupported(
                 f.span,
                 format!("the Laplace arguments do not match function '{fname}'"),
@@ -296,5 +302,17 @@ impl Gen {
              {flat}let {name} = {st} {{ {inits}err__: std::cell::RefCell::new(None) }}; "
         );
         Ok(Functor { code, name })
+    }
+}
+
+/// Whether a value of type `from` can be passed where `to` is declared.
+fn promotes(from: &U, to: &U) -> bool {
+    match (from, to) {
+        (U::Array(a), U::Array(b)) => promotes(a, b),
+        (U::Int, U::Real | U::Complex) | (U::Real, U::Complex) => true,
+        (U::Vector, U::ComplexVector)
+        | (U::RowVector, U::ComplexRowVector)
+        | (U::Matrix, U::ComplexMatrix) => true,
+        (a, b) => a == b,
     }
 }

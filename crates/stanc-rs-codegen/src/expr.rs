@@ -926,8 +926,19 @@ impl Gen {
         }
         if name == "generate_laplace_options" && args.len() == 1 {
             // Stan's defaults: tolerance, steps, solver, line search steps, fallback.
-            let init = self.expr(&args[0])?;
-            let real = if e.is_some_and(|e| e.ad.has_autodiff()) {
+            let ad = if e.is_some_and(|e| e.ad.has_autodiff()) {
+                Ad::AutoDiffable
+            } else {
+                Ad::DataOnly
+            };
+            // An integer argument is the dimension of a zero starting value.
+            let init = if args[0].ty == U::Int {
+                let z = self.zero(&U::Real, &ad);
+                format!("vec![{z}; rt::stan::usize_of({})?]", self.expr(&args[0])?)
+            } else {
+                self.expr_as(&args[0], &U::Vector, &ad)?
+            };
+            let real = if ad.has_autodiff() {
                 "T::from_f64(1.49012e-08)"
             } else {
                 "1.49012e-08_f64"
@@ -976,8 +987,18 @@ impl Gen {
                 let thetas = self.expr_as(&args[2], &U::Array(Box::new(U::Vector)), &ad)?;
                 let xr = self.expr(&args[3])?;
                 let xi = self.expr(&args[4])?;
+                // Real data the function does not declare `data` arrives as autodiff values.
+                let r = if def
+                    .args
+                    .get(2)
+                    .is_some_and(|a| a.ad != stanc_rs_syntax::ast::AdLevel::DataOnly)
+                {
+                    format!("rt::stan::lift_vec::<{s}>(&r__)")
+                } else {
+                    "r__".into()
+                };
                 Ok(Some(format!(
-                    "rt::stan::map_rect({phi}, {thetas}, {xr}, {xi}, |p__, t__, r__, i__| {}::<{s}>(p__, t__, r__, i__))?",
+                    "rt::stan::map_rect({phi}, {thetas}, {xr}, {xi}, |p__, t__, r__, i__| {}::<{s}>(p__, t__, {r}, i__))?",
                     def.rust_name
                 )))
             }
@@ -1081,10 +1102,19 @@ impl Gen {
                 .iter()
                 .map(|a| (Shape::of(&a.ty), a.ad.has_autodiff()))
                 .collect();
-            // `rep_array` of a container is a plain copy, and `append_array` must lift a data operand
-            // next to an autodiff one; rt::generic does both for any type.
-            if (matches!(name, "rep_array" | "append_array")
-                || library::resolve(name, &shapes, result_ad.has_autodiff()).is_none())
+            // `rep_array` of a container is a plain copy, the appends must lift a data operand
+            // next to an autodiff one, and `dims` needs no element trait; all work for any type.
+            if (matches!(
+                name,
+                "rep_array"
+                    | "append_array"
+                    | "append_row"
+                    | "append_col"
+                    | "dims"
+                    | "csr_extract"
+                    | "csr_extract_u"
+                    | "csr_extract_v"
+            ) || library::resolve(name, &shapes, result_ad.has_autodiff()).is_none())
                 && let Some(code) = self.generic_call(e, name, &args)?
             {
                 return Ok(code);
@@ -1175,11 +1205,6 @@ impl Gen {
                     format!("{pr}.collect::<Vec<_>>()")
                 }
             }
-            ("append_row", [U::Vector, b]) | ("append_col", [U::RowVector, b]) if num(b) => {
-                let v = at(self, 0)?;
-                let x = real_of(self, 1)?;
-                format!("{{ let mut v__ = ({v}).clone(); v__.push({x}); v__ }}")
-            }
             (
                 "mdivide_right",
                 [
@@ -1205,31 +1230,33 @@ impl Gen {
                 };
                 format!("rt::generic::{f}(&{x}, &{m})?")
             }
-            ("append_row" | "append_col", [a, b])
-                if [a, b].iter().any(|t| {
+            // Operands are lifted to the result's level, which the library functions cannot do.
+            ("append_row" | "append_col", [a, b]) => {
+                let complex = [a, b].iter().any(|t| {
                     matches!(t, U::ComplexVector | U::ComplexRowVector | U::ComplexMatrix)
-                }) =>
-            {
+                });
                 let cplx = |t: &U| match t {
-                    U::Vector => U::ComplexVector,
-                    U::RowVector => U::ComplexRowVector,
-                    U::Matrix => U::ComplexMatrix,
-                    U::Int | U::Real => U::Complex,
+                    U::Vector if complex => U::ComplexVector,
+                    U::RowVector if complex => U::ComplexRowVector,
+                    U::Matrix if complex => U::ComplexMatrix,
+                    U::Int | U::Real if complex => U::Complex,
+                    U::Int => U::Real,
                     t => t.clone(),
                 };
                 let (ta, tb) = (cplx(a), cplx(b));
                 let x = self.expr_as(&args[0], &ta, &e.ad)?;
                 let y = self.expr_as(&args[1], &tb, &e.ad)?;
                 let rows = name == "append_row";
-                let along = if rows {
-                    U::ComplexVector
-                } else {
-                    U::ComplexRowVector
+                let (along, scalar) = match (rows, complex) {
+                    (true, true) => (U::ComplexVector, U::Complex),
+                    (false, true) => (U::ComplexRowVector, U::Complex),
+                    (true, false) => (U::Vector, U::Real),
+                    (false, false) => (U::RowVector, U::Real),
                 };
                 // Two vectors along the appended direction, or a scalar and one, concatenate.
-                if [&ta, &tb].iter().all(|t| **t == along || **t == U::Complex) {
+                if [&ta, &tb].iter().all(|t| **t == along || **t == scalar) {
                     let wrap = |c: String, t: &U| {
-                        if *t == U::Complex {
+                        if *t == scalar {
                             format!("vec![{c}]")
                         } else {
                             format!("({c}).clone()")
@@ -1242,8 +1269,8 @@ impl Gen {
                     )
                 } else {
                     let mat = |c: String, t: &U| match t {
-                        U::ComplexMatrix => format!("({c})"),
-                        U::ComplexRowVector => format!("rt::generic::as_row(&{c})"),
+                        U::ComplexMatrix | U::Matrix => format!("({c})"),
+                        U::ComplexRowVector | U::RowVector => format!("rt::generic::as_row(&{c})"),
                         _ => format!("rt::generic::as_col(&{c})"),
                     };
                     let f = if rows { "stack_rows" } else { "stack_cols" };
@@ -1349,11 +1376,6 @@ impl Gen {
                     "{{ let x__ = {x}; let mut m__ = {m}; for i__ in 0..m__.nrows().min(m__.ncols()) {{ m__[(i__, i__)] = m__[(i__, i__)] + {get}; }} m__ }}"
                 )
             }
-            ("append_row", [a, U::Vector]) | ("append_col", [a, U::RowVector]) if num(a) => {
-                let x = real_of(self, 0)?;
-                let v = at(self, 1)?;
-                format!("{{ let mut v__ = vec![{x}]; v__.extend(({v}).iter().cloned()); v__ }}")
-            }
             ("minus", [t @ U::Array(_)]) => {
                 let v = at(self, 0)?;
                 let shape = Shape::of(t);
@@ -1450,6 +1472,18 @@ impl Gen {
                 let v = at(self, 0)?;
                 let n = ints(self, 1)?;
                 format!("rt::generic::segment(&{v}, {}, {})?", n[0], n[1])
+            }
+            // stanmath-rs indexes the CSR form from zero; Stan from one.
+            ("csr_extract_v" | "csr_extract_u", [U::Matrix]) => {
+                format!("rt::generic::one_based(sm::{name}(&{}))", at(self, 0)?)
+            }
+            ("csr_extract", [U::Matrix]) => format!(
+                "{{ let c__ = sm::csr_extract(&{}); (c__.values, rt::generic::one_based(c__.columns), rt::generic::one_based(c__.row_starts)) }}",
+                at(self, 0)?
+            ),
+            ("dims", [t]) => {
+                let x = self.expr(&args[0])?;
+                format!("{{ let x__ = &{x}; {} }}", dims_code("x__", t, 0))
             }
             ("reverse", [t]) if one_d(t) => format!("rt::generic::reverse(&{})", at(self, 0)?),
             ("append_array", [a, b]) if one_d(a) && one_d(b) => {
@@ -2037,5 +2071,24 @@ fn convert_return(call: String, ty: &str) -> String {
         "bool" | "i32" | "usize" => format!("(({call}) as i64)"),
         "Vec<usize>" => format!("rt::stan::usizes_to_ints({call})"),
         _ => call,
+    }
+}
+
+/// Rust code for Stan's `dims` of the value bound to `x`, from its static type. Like Stan, the
+/// dimensions inside an array come from its first element.
+fn dims_code(x: &str, t: &U, depth: usize) -> String {
+    match t {
+        U::Vector | U::RowVector | U::ComplexVector | U::ComplexRowVector => {
+            format!("vec![{x}.len() as i64]")
+        }
+        U::Matrix | U::ComplexMatrix => format!("vec![{x}.nrows() as i64, {x}.ncols() as i64]"),
+        U::Array(inner) => {
+            let f = format!("f{depth}__");
+            format!(
+                "{{ let mut d__ = vec![{x}.len() as i64]; if let Some({f}) = {x}.first() {{ d__.extend({}); }} d__ }}",
+                dims_code(&f, inner, depth + 1)
+            )
+        }
+        _ => "Vec::<i64>::new()".into(),
     }
 }

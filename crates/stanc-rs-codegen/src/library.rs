@@ -192,7 +192,8 @@ fn param(s: &str, generics: &[(String, Vec<String>)]) -> Param {
     }
     if generics.iter().any(|(g, _)| g == s) {
         let bs = bounds(s);
-        if bs.iter().any(|b| b == "Real") {
+        // A bare `Ring` value is one scalar, never broadcast over a slice.
+        if bs.iter().any(|b| b == "Real" || b == "Ring") {
             return Param::RealScalar(s.to_string());
         }
         return Param::Broadcast {

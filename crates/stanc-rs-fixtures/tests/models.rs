@@ -733,3 +733,46 @@ fn dependent_bounds_and_lp_tilde() {
     let propto = m.log_density(&back, PROPTO).unwrap();
     assert_close(full - propto, -LN_2PI, 1e-12);
 }
+
+// Bounds that are arrays give each element its own bound.
+#[test]
+fn array_valued_bounds() {
+    let m = fx::array_bounds::Model::new(
+        &data(r#"{"lo": [1.0, -2.0], "hi": [[0.0, 1.0], [2.0, 3.0]]}"#),
+        0,
+    )
+    .unwrap();
+    let values = r#"{"a": [1.5, -1.0], "b": [[-1.0, 0.5], [1.0, 2.5]]}"#;
+    let z = m.unconstrain(&data(values)).unwrap();
+    assert_close(z[0], 0.5_f64.ln(), 1e-14);
+    assert_close(z[1], 1.0_f64.ln(), 1e-14);
+    assert_close(z[2], 1.0_f64.ln(), 1e-14);
+    let out = m.write_array(&z, true, false, &mut rng()).unwrap();
+    let expected = [1.5, -1.0, -1.0, 1.0, 0.5, 2.5, 1.5, -1.0];
+    for (o, e) in out.iter().zip(expected) {
+        assert_close(*o, e, 1e-13);
+    }
+    // The density is the log Jacobian alone: the sum of the unconstrained values.
+    let lp = m.log_density(&z, FULL).unwrap();
+    assert_close(lp, z.iter().sum(), 1e-13);
+}
+
+// dims, the one-based CSR indices, and appends mixing parameters with data.
+#[test]
+fn structural_functions() {
+    let m = fx::structure::Model::new(
+        &data(r#"{"ms": [[[0,0,0,0],[0,0,0,0],[0,0,0,0]],[[0,0,0,0],[0,0,0,0],[0,0,0,0]]], "sp": [[0, 5], [6, 0]]}"#),
+        0,
+    )
+    .unwrap();
+    let out = m
+        .write_array(&[0.5, -0.5], false, true, &mut rng())
+        .unwrap();
+    let expected = [
+        0.5, -0.5, 2.0, 3.0, 4.0, 2.0, 1.0, 1.0, 2.0, 3.0, 0.5, -0.5, 1.0, 2.0, 5.0, 3.0, 4.0,
+    ];
+    assert_eq!(out.len(), expected.len());
+    for (o, e) in out.iter().zip(expected) {
+        assert_close(*o, e, 0.0);
+    }
+}

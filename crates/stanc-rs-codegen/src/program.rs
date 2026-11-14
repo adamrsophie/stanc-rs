@@ -1,7 +1,9 @@
 //! The generated module: user functions, the model struct, its constructor, and the
 //! `GeneratedModel` implementation.
 
-use stanc_rs_semantic::typed::{TExpr, TProgram, TSizedType, TStmt, TStmtKind, TTransformation};
+use stanc_rs_semantic::typed::{
+    Origin, TExpr, TExprKind, TIndex, TProgram, TSizedType, TStmt, TStmtKind, TTransformation,
+};
 use stanc_rs_semantic::types::Ad;
 use stanc_rs_syntax::ast::{FnSuffix, UnsizedType as U};
 
@@ -408,25 +410,24 @@ impl Gen {
 
     /// Emits loops over the innermost (non-array) elements of variable `var` with `depth` array
     /// levels; `body` receives a reference expression for each element.
-    fn for_leaves(
-        &mut self,
-        var: &str,
-        depth: usize,
-        body: &mut dyn FnMut(&mut Gen, &str) -> R<()>,
-    ) -> R<()> {
+    fn for_leaves(&mut self, var: &str, depth: usize, body: &mut LeafBody) -> R<()> {
         if depth == 0 {
             let l = self.fresh("leaf");
             self.line(&format!("let {l} = &{var};"));
-            return body(self, &l);
+            return body(self, &l, &[]);
         }
         let mut cur = var.to_string();
+        let mut idx = Vec::new();
         for _ in 0..depth {
             let e = self.fresh("e");
-            self.line(&format!("for {e} in {cur}.iter() {{"));
+            let k = self.fresh("k");
+            self.line(&format!("for ({k}, {e}) in {cur}.iter().enumerate() {{"));
             self.indent += 1;
+            self.line(&format!("let {k} = {k} as i64 + 1;"));
+            idx.push(k);
             cur = e;
         }
-        body(self, &cur)?;
+        body(self, &cur, &idx)?;
         for _ in 0..depth {
             self.indent -= 1;
             self.line("}");
@@ -462,7 +463,8 @@ impl Gen {
         let name = format!("{name:?}");
         let trans = trans.clone();
         let inner = inner.clone();
-        self.for_leaves(var, dims.len(), &mut |g, leaf| {
+        self.for_leaves(var, dims.len(), &mut |g, leaf, idx| {
+            let trans = at_element(&trans, idx);
             let vec = || format!("&rt::check::vals({leaf})");
             let mat = || format!("&rt::check::mat_vals({leaf})");
             match &trans {
@@ -723,15 +725,17 @@ impl Gen {
         let (dims, inner) = parts(ty);
         let inner = inner.clone();
         let mut sizes = Vec::new();
+        let mut idx = Vec::new();
         for e in dims {
             let c = self.size(e)?;
             let t = self.fresh("n");
             self.line(&format!("let {t} = {c};"));
             sizes.push(t);
+            idx.push(self.fresh("k"));
         }
-        let mut code = self.read_inner(&inner, trans)?;
-        for n in sizes.iter().rev() {
-            code = format!("rt::stan::build({n}, || Ok({code}))?");
+        let mut code = self.read_inner(&inner, &at_element(trans, &idx))?;
+        for (n, k) in sizes.iter().zip(&idx).rev() {
+            code = format!("rt::stan::build_at({n}, |{k}| Ok({code}))?");
         }
         Ok(code)
     }
@@ -882,7 +886,8 @@ impl Gen {
         let (dims, inner) = parts(ty);
         let inner = inner.clone();
         let trans = trans.clone();
-        self.for_leaves(v, dims.len(), &mut |g, leaf| {
+        self.for_leaves(v, dims.len(), &mut |g, leaf, idx| {
+            let trans = at_element(&trans, idx);
             if let TSizedType::Tuple(ts) = &inner {
                 for (i, t) in ts.iter().enumerate() {
                     g.free_value(&format!("{leaf}.{i}"), t, &component(&trans, i))?;
@@ -962,6 +967,49 @@ impl Gen {
             g.line(&code);
             Ok(())
         })
+    }
+}
+
+/// Receives each innermost element and its one-based array indices.
+type LeafBody<'a> = dyn FnMut(&mut Gen, &str, &[String]) -> R<()> + 'a;
+
+/// The transformation of one array element at the one-based Rust indices `idx`: bounds that are
+/// arrays themselves give one bound per element.
+fn at_element(trans: &TTransformation, idx: &[String]) -> TTransformation {
+    use TTransformation as Tr;
+    let at = |e: &TExpr| -> TExpr {
+        let mut e = e.clone();
+        for k in idx {
+            let U::Array(inner) = e.ty.clone() else {
+                break;
+            };
+            let i = TExpr {
+                kind: TExprKind::Variable {
+                    name: k.clone(),
+                    origin: Origin::Model,
+                    global: false,
+                },
+                ty: U::Int,
+                ad: Ad::DataOnly,
+                span: e.span,
+            };
+            e = TExpr {
+                kind: TExprKind::Indexed(Box::new(e.clone()), vec![TIndex::Single(i)]),
+                ty: *inner,
+                ad: e.ad.clone(),
+                span: e.span,
+            };
+        }
+        e
+    };
+    match trans {
+        Tr::Lower(l) => Tr::Lower(at(l)),
+        Tr::Upper(u) => Tr::Upper(at(u)),
+        Tr::LowerUpper(l, u) => Tr::LowerUpper(at(l), at(u)),
+        Tr::Offset(o) => Tr::Offset(at(o)),
+        Tr::Multiplier(m) => Tr::Multiplier(at(m)),
+        Tr::OffsetMultiplier(o, m) => Tr::OffsetMultiplier(at(o), at(m)),
+        t => t.clone(),
     }
 }
 
