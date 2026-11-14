@@ -18,4 +18,9 @@ generated quantities {
   array[2] vector[3] o_back = ordered_unconstrain(o);
   tuple(real, vector[2]) t = (z, [1, 2]');
   vector[3] w = pow(exp(y), y + 1);
+  array[2, 3] real a = rep_array(0.0, 2, 3);
+  a[:, 2] = {1.0, 2.0};
+  a[1, 2:3] = {5.0, 6.0};
+  array[2] vector[3] b = rep_array(rep_vector(0, 3), 2);
+  b[{2, 1}, 1] = {7.0, 8.0};
 }

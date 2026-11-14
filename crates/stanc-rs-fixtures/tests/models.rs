@@ -468,6 +468,17 @@ fn constraint_functions() {
             1e-14,
         );
     }
+    // Assignments through several indexes, multi-indexes first or last.
+    let a = [[0.0, 5.0, 6.0], [0.0, 2.0, 0.0]];
+    for (i, row) in a.iter().enumerate() {
+        for (j, v) in row.iter().enumerate() {
+            assert_close(at(&format!("a.{}.{}", i + 1, j + 1)), *v, 0.0);
+        }
+    }
+    // `b[{2, 1}, 1] = {7, 8}` sets b[2][1] = 7 and b[1][1] = 8.
+    assert_close(at("b.2.1"), 7.0, 0.0);
+    assert_close(at("b.1.1"), 8.0, 0.0);
+    assert_close(at("b.1.2"), 0.0, 0.0);
     // The `_jacobian` calls add the log Jacobians only when the Jacobian is requested.
     let base: f64 = theta.iter().map(|v| normal_lpdf(*v, 0.0, 1.0)).sum();
     assert_close(m.log_density(&theta, NO_JAC).unwrap(), base, 1e-12);
@@ -480,4 +491,62 @@ fn constraint_functions() {
     );
     check_gradient(&m, &theta, FULL);
     check_gradient(&m, &theta, NO_JAC);
+}
+
+#[test]
+fn parameter_times_dae_adjoint_quadrature() {
+    let m = fx::solvers2::Model::new(&data("{}"), 0).unwrap();
+    let theta = [0.2_f64, -0.3];
+    let (k, t) = (theta[0].exp(), theta[1].exp());
+    let out = m.write_array(&theta, true, true, &mut rng()).unwrap();
+    // k, T, y_end, y_dae[2], y_adj[2], gk, de
+    let y_end = (-k * t).exp();
+    assert_close(out[2], y_end, 1e-8);
+    for (j, s) in [0.5, 1.0].iter().enumerate() {
+        assert_close(out[3 + j], (-k * s).exp(), 1e-7);
+        assert_close(out[5 + j], (-k * s).exp(), 1e-7);
+    }
+    let gauss = (2.0 * std::f64::consts::PI).sqrt() * k;
+    assert_close(out[7], gauss, 1e-7);
+    assert_close(out[8], gauss / 2.0, 1e-7);
+    let lognormal = |z: f64| -0.5 * LN_2PI - z - 0.5 * z * z;
+    let expected = lognormal(theta[0])
+        + lognormal(theta[1])
+        + theta[0]
+        + theta[1]
+        + normal_lpdf(y_end, 0.5, 0.2);
+    let (lp, g) = m.log_density_gradient(&theta, FULL).unwrap();
+    assert_close(lp, expected, 1e-7);
+    // The derivative with respect to the output time: d y_end / dz_T = -k T y_end.
+    let dlik = -(y_end - 0.5) / 0.04;
+    assert_close(g[1], -theta[1] + dlik * (-k * t * y_end), 1e-6);
+    assert_close(g[0], -theta[0] + dlik * (-k * t * y_end), 1e-6);
+}
+
+#[test]
+fn laplace_approximation() {
+    let m = fx::laplace::Model::new(&data(r#"{"y": [0.4, -1.1], "c": [3, 0]}"#), 0).unwrap();
+    let theta = [-0.2_f64, 0.3];
+    let (sigma, alpha) = (theta[0].exp(), theta[1].exp());
+    let ys = [0.4, -1.1];
+    // With a Gaussian likelihood the approximation is exact: y ~ normal(0, sqrt(alpha^2 + sigma^2)).
+    let sd = (alpha * alpha + sigma * sigma).sqrt();
+    let marginal: f64 = ys.iter().map(|y| normal_lpdf(*y, 0.0, sd)).sum();
+    assert_close(m.log_density(&theta, NO_JAC).unwrap(), marginal, 1e-8);
+    check_gradient(&m, &theta, FULL);
+    let names = m.param_names(true, true);
+    let out = m.write_array(&theta, true, true, &mut rng()).unwrap();
+    assert_eq!(out.len(), names.len());
+    let at = |n: &str| out[names.iter().position(|x| x == n).unwrap()];
+    // Posterior of the latent values: mean shrunk by a^2 / (a^2 + s^2), variance a^2 s^2 / (a^2 + s^2).
+    let w = alpha * alpha / (sd * sd);
+    let chol = (w * sigma * sigma).sqrt();
+    for (i, y) in ys.iter().enumerate() {
+        assert_close(at(&format!("fit:1.{}", i + 1)), w * y, 1e-8);
+        assert_close(at(&format!("fit:2.{}.{}", i + 1, i + 1)), chol, 1e-8);
+        assert!(at(&format!("draw.{}", i + 1)).is_finite());
+    }
+    assert_close(at("fit:2.2.1"), 0.0, 1e-12);
+    // The built in Poisson likelihood agrees with the same likelihood written as a function.
+    assert_close(at("builtin"), at("user"), 1e-8);
 }

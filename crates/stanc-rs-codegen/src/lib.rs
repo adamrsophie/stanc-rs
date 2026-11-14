@@ -18,6 +18,7 @@
 #![allow(missing_docs)]
 
 pub mod expr;
+pub mod laplace;
 pub mod library;
 pub mod program;
 pub mod solvers;

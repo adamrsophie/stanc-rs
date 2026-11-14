@@ -913,6 +913,21 @@ impl Gen {
 
     /// Higher-order functions that lower to direct calls of the user-defined function argument.
     fn higher_order(&mut self, e: Option<&TExpr>, name: &str, args: &[TExpr]) -> R<Option<String>> {
+        if let Some(code) = self.laplace(e, name, args)? {
+            return Ok(Some(code));
+        }
+        if name == "generate_laplace_options" && args.len() == 1 {
+            // Stan's defaults: tolerance, steps, solver, line search steps, fallback.
+            let init = self.expr(&args[0])?;
+            let real = if e.is_some_and(|e| e.ad.has_autodiff()) {
+                "T::from_f64(1.49012e-08)"
+            } else {
+                "1.49012e-08_f64"
+            };
+            return Ok(Some(format!(
+                "({init}, {real}, 500_i64, 1_i64, 1000_i64, 1_i64)"
+            )));
+        }
         let fn_name = |a: &TExpr| match &a.kind {
             TExprKind::Variable { name, .. } => Some(name.clone()),
             _ => None,
@@ -1028,7 +1043,9 @@ impl Gen {
                 .iter()
                 .map(|a| (Shape::of(&a.ty), a.ad.has_autodiff()))
                 .collect();
-            if library::resolve(name, &shapes, result_ad.has_autodiff()).is_none()
+            // `rep_array` of a container is a plain copy, which rt::generic does for any type.
+            if (name == "rep_array"
+                || library::resolve(name, &shapes, result_ad.has_autodiff()).is_none())
                 && let Some(code) = self.generic_call(e, name, &args)?
             {
                 return Ok(code);

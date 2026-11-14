@@ -475,10 +475,8 @@ impl Gen {
                         }
                     }
                     _ => {
-                        return Err(unsupported(
-                            lhs.span,
-                            "this multi-index assignment is not supported by stanc-rs yet",
-                        ));
+                        let ty = ty.clone();
+                        self.assign_general(lhs, &p, &ty, idxs, v)?;
                     }
                 }
                 Ok(())
@@ -489,6 +487,62 @@ impl Gen {
                 Ok(())
             }
         }
+    }
+
+    /// Assigns `v` to `p[idxs...]` (with `p` of type `ty`) one index at a time: a single index
+    /// selects an element, a multi-index loops over its positions and the elements of `v`.
+    fn assign_general(
+        &mut self,
+        lhs: &TLValue,
+        p: &str,
+        ty: &U,
+        idxs: &[TIndex],
+        v: &str,
+    ) -> R<()> {
+        let Some((first, rest)) = idxs.split_first() else {
+            self.line(&format!("{p} = {v};"));
+            return Ok(());
+        };
+        let inner = match ty {
+            U::Array(t) => (**t).clone(),
+            U::Vector | U::RowVector => U::Real,
+            U::ComplexVector | U::ComplexRowVector => U::Complex,
+            U::Matrix | U::ComplexMatrix => {
+                return Err(unsupported(
+                    lhs.span,
+                    "this multi-index assignment into a matrix is not supported by stanc-rs yet",
+                ));
+            }
+            _ => return Err(self.internal("indexing a scalar")),
+        };
+        match first {
+            TIndex::Single(e) if e.ty == U::Int => {
+                let ic = self.tmp_expr(e)?;
+                let t = self.fresh("t");
+                self.line("{");
+                self.indent += 1;
+                self.line(&format!("let {t} = rt::index::at_mut(&mut {p}, {ic})?;"));
+                self.assign_general(lhs, &format!("(*{t})"), &inner, rest, v)?;
+                self.indent -= 1;
+                self.line("}");
+            }
+            _ => {
+                let ix = self.idx_tmp(first)?;
+                let (pos, k, x) = (self.fresh("pos"), self.fresh("k"), self.fresh("x"));
+                self.line(&format!(
+                    "let {pos} = rt::index::positions(&{ix}, {p}.len())?;"
+                ));
+                self.line(&format!(
+                    "rt::stan::common_len(\"assignment\", &[{pos}.len(), {v}.len()])?;"
+                ));
+                self.line(&format!("for ({k}, {x}) in {pos}.into_iter().zip({v}) {{"));
+                self.indent += 1;
+                self.assign_general(lhs, &format!("{p}[{k}]"), &inner, rest, &x)?;
+                self.indent -= 1;
+                self.line("}");
+            }
+        }
+        Ok(())
     }
 
     fn tmp_expr(&mut self, e: &TExpr) -> R<String> {

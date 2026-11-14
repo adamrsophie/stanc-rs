@@ -28,6 +28,13 @@ enum Kind {
     Solve { tol: bool },
     /// `integrate_1d(f, a, b, theta, x_r, x_i[, rel_tol])`.
     Integrate1d,
+    /// `integrate_1d_gauss_kronrod|double_exponential(f, a, b, ...)` and the `_tol` forms with
+    /// `rel_tol, abs_tol, max_depth`; `f(x, xc, ...)`.
+    Quadrature { tol: bool },
+    /// `dae(f, yy0, yp0, t0, ts, ...)` and `dae_tol` with three controls; `f(t, y, yp, ...)`.
+    Dae { tol: bool },
+    /// `ode_adjoint_tol_ctl(f, y0, t0, ts, <11 controls>, ...)`.
+    Adjoint,
 }
 
 fn kind(name: &str) -> Option<Kind> {
@@ -43,12 +50,21 @@ fn kind(name: &str) -> Option<Kind> {
         "solve_newton" | "solve_powell" => Kind::Solve { tol: false },
         "solve_newton_tol" | "solve_powell_tol" => Kind::Solve { tol: true },
         "integrate_1d" => Kind::Integrate1d,
+        "integrate_1d_gauss_kronrod" | "integrate_1d_double_exponential" => {
+            Kind::Quadrature { tol: false }
+        }
+        "integrate_1d_gauss_kronrod_tol" | "integrate_1d_double_exponential_tol" => {
+            Kind::Quadrature { tol: true }
+        }
+        "dae" => Kind::Dae { tol: false },
+        "dae_tol" => Kind::Dae { tol: true },
+        "ode_adjoint_tol_ctl" => Kind::Adjoint,
         _ => return None,
     })
 }
 
 /// Drops the checker's data-to-autodiff promotions so that data stays data.
-fn strip(a: &TExpr) -> TExpr {
+pub(crate) fn strip(a: &TExpr) -> TExpr {
     match &a.kind {
         TExprKind::Promotion(x, Promotion::ToVar) if x.ty == a.ty => (**x).clone(),
         _ => a.clone(),
@@ -57,13 +73,13 @@ fn strip(a: &TExpr) -> TExpr {
 
 /// Code for the variadic arguments of one call.
 #[derive(Default)]
-struct Extras {
+pub(crate) struct Extras {
     /// Struct fields: name, type, initializer.
-    fields: Vec<(String, String, String)>,
+    pub(crate) fields: Vec<(String, String, String)>,
     /// Statements that push the autodiff arguments into `th__`.
-    flatten: Vec<String>,
+    pub(crate) flatten: Vec<String>,
     /// The arguments as passed to the user-defined function inside the trait method.
-    in_eval: Vec<String>,
+    pub(crate) in_eval: Vec<String>,
 }
 
 impl Gen {
@@ -89,14 +105,18 @@ impl Gen {
                 format!("function '{fname}' has no definition"),
             ));
         };
-        let def = defs[0].clone();
+        let defs = defs.clone();
         let ad = e.map_or(Ad::DataOnly, |e| e.ad.clone());
         let s = scalar(&ad).to_string();
         let args: Vec<TExpr> = args.iter().map(strip).collect();
+        // The ODE solvers with parameter-dependent times go through `ode_tol_times`.
+        let ad_times = matches!(k, Kind::Ode { .. })
+            && (args[2].ad.has_autodiff() || args[3].ad.has_autodiff());
         for (i, a) in args.iter().enumerate().skip(1) {
             // Times and tolerances are data in stanmath-rs.
             let time_like = match k {
-                Kind::Ode { .. } | Kind::IntegrateOde => i == 2 || i == 3,
+                Kind::IntegrateOde | Kind::Adjoint => i == 2 || i == 3,
+                Kind::Dae { .. } => i == 3 || i == 4,
                 _ => false,
             };
             if time_like && a.ad.has_autodiff() {
@@ -131,6 +151,7 @@ impl Gen {
                 g.expr(m)?
             ))
         };
+        let data_vec = |g: &mut Gen, a: &TExpr| -> R<String> { g.expr_as(a, &a.ty, &Ad::DataOnly) };
         let lifted = |g: &mut Gen, a: &TExpr| -> R<String> {
             g.expr_as(a, &a.ty, &ad.clone().fill_for(&a.ty))
         };
@@ -196,7 +217,38 @@ impl Gen {
                 ],
                 args.len(),
             ),
+            Kind::Quadrature { tol } => (
+                "sm::Integrand",
+                "fn eval<T: sm::Real>(&self, x: T, theta: &[T]) -> T",
+                "T::from_f64(f64::NAN)",
+                vec![("x", "r"), ("T::from_f64(f64::NAN)", "r")],
+                if tol { 6 } else { 3 },
+            ),
+            Kind::Dae { tol } => (
+                "sm::DaeSystem",
+                "fn eval<T: sm::Real>(&self, t: T, y: &[T], yp: &[T], theta: &[T]) -> Vec<T>",
+                "vec![T::from_f64(f64::NAN); y.len()]",
+                vec![("t", "r"), ("y.to_vec()", "v"), ("yp.to_vec()", "v")],
+                if tol { 8 } else { 5 },
+            ),
+            Kind::Adjoint => (
+                "sm::OdeSystem",
+                "fn eval<T: sm::Real>(&self, t: T, y: &[T], theta: &[T]) -> Vec<T>",
+                "vec![T::from_f64(f64::NAN); y.len()]",
+                vec![("t", "r"), ("y.to_vec()", "v")],
+                15,
+            ),
         };
+        // Among overloads, the definition whose variadic parameters take the extra arguments.
+        let n_extra = args.len().saturating_sub(first_extra);
+        let fits = |d: &crate::UdfDef| {
+            d.args.len() == fixed.len() + n_extra
+                && d.args[fixed.len()..]
+                    .iter()
+                    .zip(&args[first_extra..])
+                    .all(|(p, a)| p.ty == a.ty || (p.ty == U::Real && a.ty == U::Int))
+        };
+        let def = defs.iter().find(|d| fits(d)).unwrap_or(&defs[0]).clone();
         let params: Vec<TFunArg> = def.args.clone();
         if params.len() != fixed.len() + args.len().saturating_sub(first_extra) {
             return Err(unsupported(
@@ -204,7 +256,7 @@ impl Gen {
                 format!("'{name}': the arguments do not match function '{fname}'"),
             ));
         }
-        let ex = self.extras(&args[first_extra..], &params[fixed.len()..])?;
+        let ex = self.extras(&args[first_extra..], &params[fixed.len()..], "th__")?;
         let mut fields = ex.fields;
         if k == Kind::Integrate1d {
             fields.push(("x_r__".into(), "Vec<f64>".into(), data(self, &args[4])?));
@@ -241,6 +293,26 @@ impl Gen {
             )
         };
         let solve = match k {
+            Kind::Ode { tol } if ad_times => {
+                let y0 = lifted(self, &args[1])?;
+                let t0 = self.expr_as(&args[2], &U::Real, &ad)?;
+                let ts = lifted(self, &args[3])?;
+                let base = name.strip_suffix("_tol").unwrap_or(name);
+                let (method, default) = match base {
+                    "ode_rk45" => ("Rk45", "NONSTIFF"),
+                    "ode_ckrk" => ("Ckrk", "NONSTIFF"),
+                    "ode_adams" => ("Adams", "STIFF"),
+                    _ => ("Bdf", "STIFF"),
+                };
+                let o = if tol {
+                    ode_opts(self, &args[4], &args[5], &args[6])?
+                } else {
+                    format!("sm::OdeOptions::{default}")
+                };
+                format!(
+                    "sm::ode_tol_times(sm::OdeMethod::{method}, &{a_}, &{y0}, {t0}, &{ts}, &th__, &{o})"
+                )
+            }
             Kind::Ode { tol } => {
                 let y0 = lifted(self, &args[1])?;
                 let t0 = data_real(self, &args[2])?;
@@ -313,6 +385,53 @@ impl Gen {
                 };
                 format!("sm::integrate_1d(&{a_}, {a}, {b}, &{theta}, {tol})")
             }
+            Kind::Quadrature { tol } => {
+                let a = self.expr_as(&args[1], &U::Real, &ad)?;
+                let b = self.expr_as(&args[2], &U::Real, &ad)?;
+                if tol {
+                    let r = data_real(self, &args[3])?;
+                    let at = data_real(self, &args[4])?;
+                    let d = self.expr(&args[5])?;
+                    format!(
+                        "sm::{name}(&{a_}, {a}, {b}, &th__, {r}, {at}, rt::stan::usize_of({d})?)"
+                    )
+                } else {
+                    format!("sm::{name}(&{a_}, {a}, {b}, &th__, 1.4901161193847656e-8)")
+                }
+            }
+            Kind::Dae { tol } => {
+                let y0 = lifted(self, &args[1])?;
+                let yp0 = lifted(self, &args[2])?;
+                let t0 = data_real(self, &args[3])?;
+                let ts = data(self, &args[4])?;
+                if tol {
+                    let o = ode_opts(self, &args[5], &args[6], &args[7])?;
+                    format!("sm::dae_tol(&{a_}, &{y0}, &{yp0}, {t0}, &{ts}, &th__, &{o})")
+                } else {
+                    format!("sm::dae(&{a_}, &{y0}, &{yp0}, {t0}, &{ts}, &th__)")
+                }
+            }
+            Kind::Adjoint => {
+                let y0 = lifted(self, &args[1])?;
+                let t0 = data_real(self, &args[2])?;
+                let ts = data(self, &args[3])?;
+                let r = |g: &mut Gen, i: usize| data_real(g, &args[i]);
+                let o = format!(
+                    "sm::AdjointOptions {{ rel_tol_forward: {}, abs_tol_forward: {}, rel_tol_backward: {}, abs_tol_backward: {}, rel_tol_quadrature: {}, abs_tol_quadrature: {}, max_num_steps: rt::stan::usize_of({})?, num_steps_between_checkpoints: rt::stan::usize_of({})?, interpolation_polynomial: ({}) as i32, solver_forward: ({}) as i32, solver_backward: ({}) as i32 }}",
+                    r(self, 4)?,
+                    data_vec(self, &args[5])?,
+                    r(self, 6)?,
+                    data_vec(self, &args[7])?,
+                    r(self, 8)?,
+                    r(self, 9)?,
+                    self.expr(&args[10])?,
+                    self.expr(&args[11])?,
+                    self.expr(&args[12])?,
+                    self.expr(&args[13])?,
+                    self.expr(&args[14])?
+                );
+                format!("sm::ode_adjoint_tol_ctl(&{a_}, &{y0}, {t0}, &{ts}, &{o}, &th__)")
+            }
         };
         let udf = &def.rust_name;
         let call = format!("{udf}::<T>({})", call_args.join(", "));
@@ -327,7 +446,7 @@ impl Gen {
 
     /// Fields, flattening, and rebuilt arguments for the variadic arguments `args`, passed to
     /// parameters `params` of the user-defined function.
-    fn extras(&mut self, args: &[TExpr], params: &[TFunArg]) -> R<Extras> {
+    pub(crate) fn extras(&mut self, args: &[TExpr], params: &[TFunArg], vec: &str) -> R<Extras> {
         let mut ex = Extras::default();
         for (i, (a, p)) in args.iter().zip(params).enumerate() {
             let pad = Ad::from(p.ad).fill_for(&p.ty);
@@ -342,7 +461,7 @@ impl Gen {
                 }
                 let v = self.expr(a)?;
                 let t = self.fresh("x");
-                let push = flatten(&t, &a.ty);
+                let push = flatten(vec, &t, &a.ty);
                 let tmpl = self.to_f64(t.clone(), &a.ty, &a.ad);
                 ex.flatten.push(format!("let {t} = {v}; {push}"));
                 ex.fields.push((f.clone(), data_ty, tmpl));
@@ -380,16 +499,16 @@ fn flattenable(t: &U) -> bool {
     }
 }
 
-/// Statements pushing the scalars of `v` (an owned value of type `t`) into `th__`, in the order
-/// [`unflatten`] reads them.
-fn flatten(v: &str, t: &U) -> String {
+/// Statements pushing the scalars of `v` (an owned value of type `t`) into vector `vec`, in the
+/// order [`unflatten`] reads them.
+fn flatten(vec: &str, v: &str, t: &U) -> String {
     match t {
-        U::Real => format!("th__.push({v}.clone());"),
-        U::Vector | U::RowVector => format!("th__.extend({v}.iter().cloned());"),
-        U::Matrix => format!("th__.extend({v}.as_slice().iter().cloned());"),
+        U::Real => format!("{vec}.push({v}.clone());"),
+        U::Vector | U::RowVector => format!("{vec}.extend({v}.iter().cloned());"),
+        U::Matrix => format!("{vec}.extend({v}.as_slice().iter().cloned());"),
         U::Array(i) => {
             let e = format!("{v}_e");
-            format!("for {e} in {v}.iter() {{ {} }}", flatten(&e, i))
+            format!("for {e} in {v}.iter() {{ {} }}", flatten(vec, &e, i))
         }
         _ => String::new(),
     }
