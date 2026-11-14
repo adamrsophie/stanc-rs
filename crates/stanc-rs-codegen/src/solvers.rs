@@ -110,12 +110,12 @@ impl Gen {
         let s = scalar(&ad).to_string();
         let args: Vec<TExpr> = args.iter().map(strip).collect();
         // The ODE solvers with parameter-dependent times go through `ode_tol_times`.
-        let ad_times = matches!(k, Kind::Ode { .. })
+        let ad_times = matches!(k, Kind::Ode { .. } | Kind::Adjoint)
             && (args[2].ad.has_autodiff() || args[3].ad.has_autodiff());
         for (i, a) in args.iter().enumerate().skip(1) {
             // Times and tolerances are data in stanmath-rs.
             let time_like = match k {
-                Kind::IntegrateOde | Kind::Adjoint => i == 2 || i == 3,
+                Kind::IntegrateOde => i == 2 || i == 3,
                 Kind::Dae { .. } => i == 3 || i == 4,
                 _ => false,
             };
@@ -311,6 +311,19 @@ impl Gen {
                 };
                 format!(
                     "sm::ode_tol_times(sm::OdeMethod::{method}, &{a_}, &{y0}, {t0}, &{ts}, &th__, &{o})"
+                )
+            }
+            // The adjoint method has no parameter-time form in stanmath-rs; the forward BDF
+            // sensitivities with the forward tolerances give the same solution and gradient.
+            Kind::Adjoint if ad_times => {
+                let y0 = lifted(self, &args[1])?;
+                let t0 = self.expr_as(&args[2], &U::Real, &ad)?;
+                let ts = lifted(self, &args[3])?;
+                let abs = data_vec(self, &args[5])?;
+                format!(
+                    "sm::ode_tol_times(sm::OdeMethod::Bdf, &{a_}, &{y0}, {t0}, &{ts}, &th__, &sm::OdeOptions {{ relative_tolerance: {}, absolute_tolerance: ({abs}).iter().copied().fold(f64::INFINITY, f64::min), max_num_steps: rt::stan::usize_of({})? }})",
+                    data_real(self, &args[4])?,
+                    self.expr(&args[10])?
                 )
             }
             Kind::Ode { tol } => {
