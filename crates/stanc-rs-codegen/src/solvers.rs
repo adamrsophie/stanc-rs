@@ -12,7 +12,7 @@ use stanc_rs_semantic::typed::{TExpr, TExprKind, TFunArg};
 use stanc_rs_semantic::types::{Ad, Promotion};
 use stanc_rs_syntax::ast::UnsizedType as U;
 
-use crate::expr::{rust_type, scalar};
+use crate::expr::{rust_type, scalar, slot_ad};
 use crate::{Gen, R, unsupported};
 
 /// The solver families.
@@ -466,7 +466,7 @@ impl Gen {
             let f = format!("a{i}__");
             let data_ty = rust_type(&a.ty, &Ad::DataOnly);
             if a.ad.has_autodiff() {
-                if !flattenable(&a.ty) {
+                if !flattenable(&a.ty, &a.ad) {
                     return Err(unsupported(
                         a.span,
                         "this argument type of a solver is not supported by stanc-rs yet",
@@ -474,18 +474,18 @@ impl Gen {
                 }
                 let v = self.expr(a)?;
                 let t = self.fresh("x");
-                let push = flatten(vec, &t, &a.ty);
+                let push = flatten(vec, &t, &a.ty, &a.ad);
                 let tmpl = self.to_f64(t.clone(), &a.ty, &a.ad);
                 ex.flatten.push(format!("let {t} = {v}; {push}"));
                 ex.fields.push((f.clone(), data_ty, tmpl));
-                let rebuilt = unflatten(&format!("self.{f}"), &a.ty);
-                let rebuilt = self.convert(
-                    rebuilt,
-                    &a.ty,
-                    &Ad::AutoDiffable.fill_for(&a.ty),
-                    &p.ty,
-                    &pad,
-                );
+                let rebuilt = unflatten(&format!("self.{f}"), &a.ty, &a.ad);
+                // A rebuilt tuple keeps its data components.
+                let rebuilt_ad = if matches!(crate::expr::leaf_scalar(&a.ty), U::Tuple(_)) {
+                    a.ad.clone()
+                } else {
+                    Ad::AutoDiffable.fill_for(&a.ty)
+                };
+                let rebuilt = self.convert(rebuilt, &a.ty, &rebuilt_ad, &p.ty, &pad);
                 ex.in_eval.push(rebuilt);
             } else {
                 let v = self.expr(a)?;
@@ -504,32 +504,49 @@ impl Gen {
     }
 }
 
-fn flattenable(t: &U) -> bool {
+fn flattenable(t: &U, ad: &Ad) -> bool {
     match t {
         U::Real | U::Vector | U::RowVector | U::Matrix => true,
-        U::Array(i) => flattenable(i),
+        U::Array(i) => flattenable(i, ad),
+        // Data components of a tuple stay in the template; the others are flattened.
+        U::Tuple(ts) => ts.iter().enumerate().all(|(i, t)| {
+            let a = slot_ad(ad, i);
+            !a.has_autodiff() || flattenable(t, &a)
+        }),
         _ => false,
     }
 }
 
-/// Statements pushing the scalars of `v` (an owned value of type `t`) into vector `vec`, in the
-/// order [`unflatten`] reads them.
-fn flatten(vec: &str, v: &str, t: &U) -> String {
+/// A Rust identifier made from the expression `v`.
+fn ident(v: &str) -> String {
+    v.replace(['.', '&', '(', ')'], "_")
+}
+
+/// Statements pushing the autodiff scalars of `v` (an owned value of type `t`) into vector
+/// `vec`, in the order [`unflatten`] reads them.
+fn flatten(vec: &str, v: &str, t: &U, ad: &Ad) -> String {
     match t {
         U::Real => format!("{vec}.push({v}.clone());"),
         U::Vector | U::RowVector => format!("{vec}.extend({v}.iter().cloned());"),
         U::Matrix => format!("{vec}.extend({v}.as_slice().iter().cloned());"),
         U::Array(i) => {
-            let e = format!("{v}_e");
-            format!("for {e} in {v}.iter() {{ {} }}", flatten(vec, &e, i))
+            let e = format!("{}_e", ident(v));
+            format!("for {e} in {v}.iter() {{ {} }}", flatten(vec, &e, i, ad))
         }
+        U::Tuple(ts) => ts
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| slot_ad(ad, *i).has_autodiff())
+            .map(|(i, t)| flatten(vec, &format!("{v}.{i}"), t, &slot_ad(ad, i)))
+            .collect::<Vec<_>>()
+            .join(" "),
         _ => String::new(),
     }
 }
 
 /// An expression rebuilding a value of type `t` from `theta` (cursor `k__`), shaped like the
 /// `f64` template `tmpl`.
-fn unflatten(tmpl: &str, t: &U) -> String {
+fn unflatten(tmpl: &str, t: &U, ad: &Ad) -> String {
     match t {
         U::Real => "rt::stan::next_theta(theta, &k__)".into(),
         U::Vector | U::RowVector => {
@@ -537,11 +554,26 @@ fn unflatten(tmpl: &str, t: &U) -> String {
         }
         U::Matrix => format!("rt::stan::unflatten_mat(&{tmpl}, theta, &k__)"),
         U::Array(i) => {
-            let e = format!("{}_e", tmpl.replace(['.', '&', '(', ')'], "_"));
+            let e = format!("{}_e", ident(tmpl));
             format!(
                 "{tmpl}.iter().map(|{e}| {}).collect::<Vec<_>>()",
-                unflatten(&e, i)
+                unflatten(&e, i, ad)
             )
+        }
+        U::Tuple(ts) => {
+            let parts: Vec<String> = ts
+                .iter()
+                .enumerate()
+                .map(|(i, t)| {
+                    let a = slot_ad(ad, i);
+                    if a.has_autodiff() {
+                        unflatten(&format!("{tmpl}.{i}"), t, &a)
+                    } else {
+                        format!("{tmpl}.{i}.clone()")
+                    }
+                })
+                .collect();
+            format!("({},)", parts.join(", "))
         }
         _ => String::new(),
     }

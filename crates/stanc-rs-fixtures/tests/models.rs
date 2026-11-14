@@ -569,6 +569,8 @@ fn laplace_approximation() {
     assert_close(at("fit:2.2.1"), 0.0, 1e-12);
     // The built in Poisson likelihood agrees with the same likelihood written as a function.
     assert_close(at("builtin"), at("user"), 1e-8);
+    // A covariance taking nested tuples with data and parameter parts.
+    assert_close(at("nested"), at("user"), 1e-12);
 }
 
 // Tuple parameters, alone and in arrays, with constrained components.

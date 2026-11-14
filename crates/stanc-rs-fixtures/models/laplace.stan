@@ -8,6 +8,9 @@ functions {
   matrix kernel(int n, real alpha) {
     return diag_matrix(rep_vector(square(alpha), n));
   }
+  matrix nested_kernel(tuple(int, array[] tuple(real, int)) p) {
+    return diag_matrix(rep_vector(square(p.2[1].1), p.1));
+  }
 }
 data {
   vector[2] y;
@@ -25,5 +28,6 @@ generated quantities {
   vector[2] draw = laplace_latent_rng(gaussian, (sigma, y), 1, kernel, (2, alpha));
   real builtin = laplace_marginal_poisson_log_lpmf(c | {1, 2}, rep_vector(0, 2), 1, kernel, (2, alpha));
   real user = laplace_marginal(counts, (c, 1.0), 1, kernel, (2, alpha));
+  real nested = laplace_marginal(counts, (c, 1.0), 1, nested_kernel, ((2, {(alpha, 3)}),));
   vector[2] pdraw = laplace_latent_poisson_log_rng(c, {1, 2}, rep_vector(0, 2), 1, kernel, (2, alpha));
 }

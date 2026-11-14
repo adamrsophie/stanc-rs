@@ -131,6 +131,14 @@ impl Gen {
         )?;
         let mut pre = cov.code.clone();
         let mut errs = vec![cov.name.clone()];
+        if builtin == Some("neg_binomial_2_log") && !matches!(args[2].ty, U::Int | U::Real) {
+            return Err(unsupported(
+                args[2].span,
+                format!(
+                    "'{name}' with a non-scalar dispersion is not supported by stanmath-rs yet"
+                ),
+            ));
+        }
         let call = if let Some(l) = builtin {
             let y = self.expr(&args[0])?;
             let idx = self.expr(&args[1])?;
