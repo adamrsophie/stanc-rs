@@ -616,7 +616,12 @@ impl Gen {
             _ => None,
         };
         let Some(name) = name else {
-            return self.lib_call(Some(e), op.function_name(), &[l.clone(), r.clone()]);
+            // `b / A` with a matrix `A` is `b * inverse(A)`.
+            let f = match (op, lk, rk) {
+                (Divide, 'r' | 'm', 'm') => "mdivide_right",
+                _ => op.function_name(),
+            };
+            return self.lib_call(Some(e), f, &[l.clone(), r.clone()]);
         };
         // Lift both operands to the result's scalar (and complexness).
         let complex = matches!(
@@ -1019,6 +1024,36 @@ impl Gen {
             return Ok(code);
         }
         let result_ad = e.map_or(Ad::DataOnly, |e| e.ad.clone());
+        // Integer containers where stanmath-rs only takes reals: promote them, as Stan does.
+        let shapes_of = |xs: &[TExpr]| -> Vec<(Shape, bool)> {
+            xs.iter()
+                .map(|a| (Shape::of(&a.ty), a.ad.has_autodiff()))
+                .collect()
+        };
+        if e.is_some()
+            && args
+                .iter()
+                .any(|a| matches!(a.ty, U::Array(_)) && leaf_scalar(&a.ty) == U::Int)
+            && library::resolve(name, &shapes_of(&args), result_ad.has_autodiff()).is_none()
+        {
+            let promoted: Vec<TExpr> = args
+                .iter()
+                .map(|a| {
+                    if matches!(a.ty, U::Array(_)) && leaf_scalar(&a.ty) == U::Int {
+                        TExpr {
+                            kind: TExprKind::Promotion(Box::new(a.clone()), Promotion::IntToReal),
+                            ty: ints_to_reals(&a.ty),
+                            ..a.clone()
+                        }
+                    } else {
+                        a.clone()
+                    }
+                })
+                .collect();
+            if library::resolve(name, &shapes_of(&promoted), result_ad.has_autodiff()).is_some() {
+                return self.lib_call(e, name, &promoted);
+            }
+        }
         // A call on data alone computes in f64; lift the result where autodiff is expected.
         if let Some(e) = e
             && result_ad.has_autodiff()
@@ -1084,8 +1119,189 @@ impl Gen {
                 t => t.clone(),
             }
         };
+        let num = |t: &U| matches!(t, U::Int | U::Real);
+        let real_of = |g: &mut Gen, i: usize| -> R<String> { g.expr_as(&args[i], &U::Real, &e.ad) };
         let code = match (name, tys.as_slice()) {
             ("size", [U::Int | U::Real]) => "1_i64".to_string(),
+            ("log2" | "log10", []) => {
+                let c = if name == "log2" { "LN_2" } else { "LN_10" };
+                if e.ad.has_autodiff() {
+                    format!("T::from_f64(std::f64::consts::{c})")
+                } else {
+                    format!("std::f64::consts::{c}")
+                }
+            }
+            ("to_complex", []) => self.zero(&U::Complex, &e.ad),
+            ("to_complex", [t]) if num(t) => {
+                let x = real_of(self, 0)?;
+                let z = self.zero(&U::Real, &e.ad);
+                format!("sm::Complex::new({x}, {z})")
+            }
+            ("abs", [U::Complex]) => format!("rt::generic::cabs(&{})", at(self, 0)?),
+            ("abs", [U::ComplexMatrix]) => {
+                format!("({}).map(|z__| rt::generic::cabs(z__))", at(self, 0)?)
+            }
+            ("squared_distance", [a, b]) if num(a) && num(b) => {
+                let (x, y) = (real_of(self, 0)?, real_of(self, 1)?);
+                format!("{{ let d__ = {x} - {y}; d__ * d__ }}")
+            }
+            ("rows_dot_self" | "columns_dot_self", [U::Vector | U::RowVector]) => {
+                let v = at(self, 0)?;
+                let sq = format!("({v}).iter().map(|x__| x__.clone() * x__.clone())");
+                let col = (name == "columns_dot_self") == (tys[0] == &U::Vector);
+                if col {
+                    let z = self.zero(&U::Real, &e.ad);
+                    format!("vec![{sq}.fold({z}, |a__, b__| a__ + b__)]")
+                } else {
+                    format!("{sq}.collect::<Vec<_>>()")
+                }
+            }
+            ("rows_dot_product" | "columns_dot_product", [a @ (U::Vector | U::RowVector), b])
+                if a == b =>
+            {
+                let (x, y) = (at(self, 0)?, at(self, 1)?);
+                let pr = format!(
+                    "rt::stan::common_len({name:?}, &[({x}).len(), ({y}).len()]).map(|_| ({x}).iter().zip(({y}).iter()).map(|(a__, b__)| a__.clone() * b__.clone()))?"
+                );
+                let col = (name == "columns_dot_product") == (**a == U::Vector);
+                if col {
+                    let z = self.zero(&U::Real, &e.ad);
+                    format!("vec![{pr}.fold({z}, |a__, b__| a__ + b__)]")
+                } else {
+                    format!("{pr}.collect::<Vec<_>>()")
+                }
+            }
+            ("append_row", [U::Vector, b]) | ("append_col", [U::RowVector, b]) if num(b) => {
+                let v = at(self, 0)?;
+                let x = real_of(self, 1)?;
+                format!("{{ let mut v__ = ({v}).clone(); v__.push({x}); v__ }}")
+            }
+            ("abs", [U::ComplexVector | U::ComplexRowVector]) => {
+                format!(
+                    "({}).iter().map(rt::generic::cabs).collect::<Vec<_>>()",
+                    at(self, 0)?
+                )
+            }
+            ("diag_pre_multiply", [U::ComplexVector | U::ComplexRowVector, U::ComplexMatrix]) => {
+                let (d, m) = (at(self, 0)?, at(self, 1)?);
+                format!(
+                    "{{ let d__ = {d}; let m__ = {m}; rt::stan::common_len(\"diag_pre_multiply\", &[d__.len(), m__.nrows()])?; sm::Matrix::from_fn(m__.nrows(), m__.ncols(), |i__, j__| d__[i__] * m__[(i__, j__)]) }}"
+                )
+            }
+            ("diag_post_multiply", [U::ComplexMatrix, U::ComplexVector | U::ComplexRowVector]) => {
+                let (m, d) = (at(self, 0)?, at(self, 1)?);
+                format!(
+                    "{{ let d__ = {d}; let m__ = {m}; rt::stan::common_len(\"diag_post_multiply\", &[d__.len(), m__.ncols()])?; sm::Matrix::from_fn(m__.nrows(), m__.ncols(), |i__, j__| m__[(i__, j__)] * d__[j__]) }}"
+                )
+            }
+            ("add_diag", [U::ComplexMatrix, d]) => {
+                let m = at(self, 0)?;
+                let scalar = matches!(d, U::Int | U::Real | U::Complex);
+                let target = if scalar {
+                    U::Complex
+                } else if matches!(d, U::RowVector | U::ComplexRowVector) {
+                    U::ComplexRowVector
+                } else {
+                    U::ComplexVector
+                };
+                let x = self.expr_as(&args[1], &target, &e.ad)?;
+                let get = if scalar { "x__" } else { "x__[i__]" };
+                format!(
+                    "{{ let x__ = {x}; let mut m__ = {m}; for i__ in 0..m__.nrows().min(m__.ncols()) {{ m__[(i__, i__)] = m__[(i__, i__)] + {get}; }} m__ }}"
+                )
+            }
+            ("append_row", [a, U::Vector]) | ("append_col", [a, U::RowVector]) if num(a) => {
+                let x = real_of(self, 0)?;
+                let v = at(self, 1)?;
+                format!("{{ let mut v__ = vec![{x}]; v__.extend(({v}).iter().cloned()); v__ }}")
+            }
+            ("minus", [t @ U::Array(_)]) => {
+                let v = at(self, 0)?;
+                let shape = Shape::of(t);
+                self.map_shape(&v, &shape, &mut |_, x| format!("(-{x})"))?
+            }
+            ("get_real" | "get_imag" | "conj", [t @ U::Array(_)]) => {
+                let v = at(self, 0)?;
+                let shape = Shape::of(t);
+                self.map_shape(&v, &shape, &mut |_, x| format!("rt::generic::{name}(&{x})"))?
+            }
+            ("to_vector" | "to_row_vector", [U::ComplexVector | U::ComplexRowVector]) => {
+                format!("({}).clone()", at(self, 0)?)
+            }
+            ("to_vector" | "to_row_vector", [U::Array(i)]) if **i == U::Complex => {
+                format!("({}).clone()", at(self, 0)?)
+            }
+            ("trace", [U::ComplexMatrix]) => {
+                let z = self.zero(&U::Complex, &e.ad);
+                format!(
+                    "rt::generic::sum_from(&rt::generic::diagonal(&{}), {z})",
+                    at(self, 0)?
+                )
+            }
+            ("prod", [U::ComplexMatrix | U::ComplexVector | U::ComplexRowVector]) => {
+                let m = at(self, 0)?;
+                let one = self.zero(&U::Complex, &e.ad).replace("0.0", "1.0");
+                let s = if *tys[0] == U::ComplexMatrix {
+                    format!("({m}).as_slice()")
+                } else {
+                    format!("&{m}")
+                };
+                format!("rt::generic::prod_from({s}, {one})")
+            }
+            ("rep_matrix", [U::Vector | U::ComplexVector, U::Int]) => {
+                format!(
+                    "rt::generic::rep_cols(&{}, {})?",
+                    at(self, 0)?,
+                    self.expr(&args[1])?
+                )
+            }
+            ("rep_matrix", [U::RowVector | U::ComplexRowVector, U::Int]) => {
+                format!(
+                    "rt::generic::rep_rows(&{}, {})?",
+                    at(self, 0)?,
+                    self.expr(&args[1])?
+                )
+            }
+            (
+                "hypergeometric_3F2",
+                [
+                    U::Array(_) | U::Vector | U::RowVector,
+                    U::Array(_) | U::Vector | U::RowVector,
+                    z,
+                ],
+            ) if num(z) => {
+                let a = at(self, 0)?;
+                let b = at(self, 1)?;
+                let z = real_of(self, 2)?;
+                format!(
+                    "{{ let a__ = {a}; let b__ = {b}; rt::stan::common_len(\"hypergeometric_3F2\", &[a__.len(), 3])?; rt::stan::common_len(\"hypergeometric_3F2\", &[b__.len(), 2])?; sm::hypergeometric_3F2([a__[0].clone(), a__[1].clone(), a__[2].clone()], [b__[0].clone(), b__[1].clone()], {z}) }}"
+                )
+            }
+            ("csr_to_dense_matrix", [U::Int, U::Int, U::Vector, U::Array(_), U::Array(_)]) => {
+                let (m, n) = (self.expr(&args[0])?, self.expr(&args[1])?);
+                let w = at(self, 2)?;
+                let (v, u) = (self.expr(&args[3])?, self.expr(&args[4])?);
+                format!("sm::csr_to_dense_matrix(&rt::stan::csr({m}, {n}, &{w}, &{v}, &{u})?)?")
+            }
+            (
+                "csr_matrix_times_vector",
+                [
+                    U::Int,
+                    U::Int,
+                    U::Vector,
+                    U::Array(_),
+                    U::Array(_),
+                    U::Vector,
+                ],
+            ) => {
+                let (m, n) = (self.expr(&args[0])?, self.expr(&args[1])?);
+                let w = at(self, 2)?;
+                let (v, u) = (self.expr(&args[3])?, self.expr(&args[4])?);
+                let b = at(self, 5)?;
+                format!(
+                    "sm::csr_matrix_times_vector(&rt::stan::csr({m}, {n}, &{w}, &{v}, &{u})?, &{b})?"
+                )
+            }
             ("head" | "tail", [t, U::Int]) if one_d(t) => {
                 let v = at(self, 0)?;
                 let n = self.expr(&args[1])?;
@@ -1389,8 +1605,19 @@ impl Gen {
         } else {
             // Several containers of the same shape, walked together.
             let shape = Shape::of(&args[containers[0]].ty);
+            fn structure(s: &Shape) -> Shape {
+                match s {
+                    Shape::Vec(_) => Shape::Vec(Box::new(Shape::Real)),
+                    Shape::Mat(_) => Shape::Mat(Box::new(Shape::Real)),
+                    Shape::Arr(i) if matches!(**i, Shape::Vec(_)) => {
+                        Shape::Mat(Box::new(Shape::Real))
+                    }
+                    Shape::Arr(i) => Shape::Arr(Box::new(structure(i))),
+                    s => s.clone(),
+                }
+            }
             for &i in &containers {
-                if Shape::of(&args[i].ty) != shape {
+                if structure(&Shape::of(&args[i].ty)) != structure(&shape) {
                     return Err(unsupported(
                         args[i].span,
                         format!(
@@ -1400,8 +1627,17 @@ impl Gen {
                 }
             }
             let codes: Vec<String> = containers.iter().map(|c| leaf_codes[*c].clone()).collect();
+            // With a matrix among them, two-dimensional arrays are walked like matrices.
+            let mat = containers
+                .iter()
+                .find(|c| matches!(Shape::of(&args[**c].ty), Shape::Mat(_)));
+            let shape = mat.map_or(shape, |c| Shape::of(&args[*c].ty));
+            let arr2: Vec<bool> = containers
+                .iter()
+                .map(|c| mat.is_some() && !matches!(Shape::of(&args[*c].ty), Shape::Mat(_)))
+                .collect();
             let mut leaves = leaf_codes.clone();
-            self.zip_shape(name, &codes, &shape, &mut |g, vs| {
+            self.zip_shape(name, &codes, &shape, &arr2, &mut |g, vs| {
                 for (k, &c) in containers.iter().enumerate() {
                     leaves[c] = vs[k].clone();
                 }
@@ -1417,6 +1653,7 @@ impl Gen {
         name: &str,
         codes: &[String],
         shape: &Shape,
+        arr2: &[bool],
         leaf: &mut dyn FnMut(&mut Gen, &[String]) -> String,
     ) -> String {
         let i = self.fresh("i");
@@ -1427,7 +1664,7 @@ impl Gen {
                 let lens: Vec<String> = codes.iter().map(|c| format!("{c}.len()")).collect();
                 let elems: Vec<String> = codes.iter().map(|c| format!("(&{c}[{i}])")).collect();
                 let inner = match shape {
-                    Shape::Arr(s) => self.zip_shape(name, &elems, s, leaf),
+                    Shape::Arr(s) => self.zip_shape(name, &elems, s, arr2, leaf),
                     _ => {
                         let vals: Vec<String> =
                             elems.iter().map(|e| format!("(*{e}).clone()")).collect();
@@ -1440,16 +1677,46 @@ impl Gen {
                 )
             }
             Shape::Mat(_) => {
-                let rows: Vec<String> = codes.iter().map(|c| format!("{c}.nrows()")).collect();
-                let cols: Vec<String> = codes.iter().map(|c| format!("{c}.ncols()")).collect();
+                // Two-dimensional arrays (`arr2`) are walked like matrices.
+                let (r, c) = (self.fresh("r"), self.fresh("c"));
+                let pick = |k: usize, m: &str, a: &str| {
+                    if arr2[k] {
+                        a.to_string()
+                    } else {
+                        m.to_string()
+                    }
+                };
+                let rows: Vec<String> = codes
+                    .iter()
+                    .enumerate()
+                    .map(|(k, x)| pick(k, &format!("{x}.nrows()"), &format!("{x}.len()")))
+                    .collect();
+                let cols: Vec<String> = codes
+                    .iter()
+                    .enumerate()
+                    .filter(|(k, _)| !arr2[*k])
+                    .map(|(_, x)| format!("{x}.ncols()"))
+                    .collect();
+                let row_checks: String = codes
+                    .iter()
+                    .enumerate()
+                    .filter(|(k, _)| arr2[*k])
+                    .map(|(_, x)| format!("rt::stan::check_rows({name:?}, &{x}, {c})?; "))
+                    .collect();
                 let vals: Vec<String> = codes
                     .iter()
-                    .map(|c| format!("{c}.as_slice()[{i}].clone()"))
+                    .enumerate()
+                    .map(|(k, x)| {
+                        pick(
+                            k,
+                            &format!("{x}.as_slice()[{i}].clone()"),
+                            &format!("rt::stan::at2(&{x}, {i} % {r}, {i} / {r})?"),
+                        )
+                    })
                     .collect();
                 let inner = leaf(self, &vals);
-                let (r, c) = (self.fresh("r"), self.fresh("c"));
                 format!(
-                    "{{ let {r} = rt::stan::common_len({name:?}, &[{}])?; let {c} = rt::stan::common_len({name:?}, &[{}])?; let mut {out} = Vec::with_capacity({r} * {c}); for {i} in 0..{r} * {c} {{ {out}.push({inner}); }} sm::Matrix::from_column_major({r}, {c}, {out}) }}",
+                    "{{ let {r} = rt::stan::common_len({name:?}, &[{}])?; let {c} = rt::stan::common_len({name:?}, &[{}])?; {row_checks}let mut {out} = Vec::with_capacity({r} * {c}); for {i} in 0..{r} * {c} {{ {out}.push({inner}); }} sm::Matrix::from_column_major({r}, {c}, {out}) }}",
                     rows.join(", "),
                     cols.join(", ")
                 )
@@ -1589,6 +1856,15 @@ fn int_to_real(t: &U) -> U {
     match t {
         U::Int => U::Real,
         U::Array(i) => U::Array(Box::new(int_to_real(i))),
+        t => t.clone(),
+    }
+}
+
+/// `t` with its integer leaves replaced by reals.
+fn ints_to_reals(t: &U) -> U {
+    match t {
+        U::Int => U::Real,
+        U::Array(i) => U::Array(Box::new(ints_to_reals(i))),
         t => t.clone(),
     }
 }

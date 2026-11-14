@@ -241,3 +241,30 @@ pub fn get_imag<T: Real>(z: &Complex<T>) -> T {
 pub fn conj<T: Real>(z: &Complex<T>) -> Complex<T> {
     Complex::new(z.re, -z.im)
 }
+
+/// The absolute value (modulus) of a complex number.
+pub fn cabs<T: Real>(z: &Complex<T>) -> T {
+    z.re.hypot(z.im)
+}
+
+/// The sum of the elements, starting from `zero`.
+pub fn sum_from<T: Clone + std::ops::Add<Output = T>>(v: &[T], zero: T) -> T {
+    v.iter().cloned().fold(zero, |a, b| a + b)
+}
+
+/// The product of the elements, starting from `one`.
+pub fn prod_from<T: Clone + std::ops::Mul<Output = T>>(v: &[T], one: T) -> T {
+    v.iter().cloned().fold(one, |a, b| a * b)
+}
+
+/// The matrix with `n` columns equal to `v` (Stan's `rep_matrix(vector, n)`).
+pub fn rep_cols<T: Clone>(v: &[T], n: i64) -> Result<Matrix<T>> {
+    let n = usize_of(n)?;
+    Ok(Matrix::from_fn(v.len(), n, |i, _| v[i].clone()))
+}
+
+/// The matrix with `m` rows equal to `v` (Stan's `rep_matrix(row_vector, m)`).
+pub fn rep_rows<T: Clone>(v: &[T], m: i64) -> Result<Matrix<T>> {
+    let m = usize_of(m)?;
+    Ok(Matrix::from_fn(m, v.len(), |_, j| v[j].clone()))
+}

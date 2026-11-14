@@ -23,4 +23,8 @@ generated quantities {
   a[1, 2:3] = {5.0, 6.0};
   array[2] vector[3] b = rep_array(rep_vector(0, 3), 2);
   b[{2, 1}, 1] = {7.0, 8.0};
+  array[2] matrix[2, 2] mm = rep_array(rep_matrix(0, 2, 2), 2);
+  mm[1, 2] = [3, 4];
+  mm[2][1, 2] = 5;
+  mm[1:2, 2, 1] = {6.0, 7.0};
 }

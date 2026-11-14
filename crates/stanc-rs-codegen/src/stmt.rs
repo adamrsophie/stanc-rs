@@ -409,6 +409,46 @@ impl Gen {
     }
 
     fn assign_to(&mut self, lhs: &TLValue, v: &str) -> R<()> {
+        // `x[i][j...]` with single indexes `i` is `x[i, j...]`.
+        if let TLValueKind::Indexed(inner, outer) = &lhs.kind
+            && let TLValueKind::Indexed(base, first) = &inner.kind
+            && first.iter().all(|i| !i.is_multi())
+            && !(matches!(inner.ty, U::Matrix | U::ComplexMatrix) && outer.len() == 1)
+        {
+            let mut idxs = first.clone();
+            idxs.extend(outer.iter().cloned());
+            let merged = TLValue {
+                kind: TLValueKind::Indexed(base.clone(), idxs),
+                ..lhs.clone()
+            };
+            return self.assign_to(&merged, v);
+        }
+        // `x[i..., r]` where `x[i...]` is a matrix and `r` selects rows: assign to the rows of
+        // the element.
+        if let TLValueKind::Indexed(base, idxs) = &lhs.kind
+            && idxs.len() >= 2
+            && idxs.iter().all(|i| !i.is_multi())
+        {
+            let mut ty = base.ty.clone();
+            for (k, _) in idxs.iter().enumerate() {
+                match ty {
+                    U::Array(t) => ty = *t,
+                    U::Matrix | U::ComplexMatrix if k + 1 == idxs.len() && k > 0 => {
+                        let elem = TLValue {
+                            kind: TLValueKind::Indexed(base.clone(), idxs[..k].to_vec()),
+                            ty: ty.clone(),
+                            ..lhs.clone()
+                        };
+                        let split = TLValue {
+                            kind: TLValueKind::Indexed(Box::new(elem), idxs[k..].to_vec()),
+                            ..lhs.clone()
+                        };
+                        return self.assign_to(&split, v);
+                    }
+                    _ => break,
+                }
+            }
+        }
         match &lhs.kind {
             TLValueKind::Tuple(lvs) => {
                 for (i, lv) in lvs.iter().enumerate() {
@@ -434,49 +474,12 @@ impl Gen {
                         let ix = self.idx_tmp(i)?;
                         self.line(&format!("rt::index::assign_multi(&mut {p}, &{ix}, {v})?;"));
                     }
-                    (U::Matrix | U::ComplexMatrix, [i]) => {
-                        if let TIndex::Single(e) = i
-                            && e.ty == U::Int
-                        {
-                            let ic = self.tmp_expr(e)?;
-                            self.line(&format!("rt::index::assign_row(&mut {p}, {ic}, {v})?;"));
-                        } else {
-                            let ix = self.idx_tmp(i)?;
-                            self.line(&format!(
-                                "rt::index::assign_submatrix(&mut {p}, &{ix}, &rt::index::Idx::All, {v})?;"
-                            ));
-                        }
-                    }
-                    (U::Matrix | U::ComplexMatrix, [i, j]) => {
-                        let si = matches!(i, TIndex::Single(e) if e.ty == U::Int);
-                        let sj = matches!(j, TIndex::Single(e) if e.ty == U::Int);
-                        match (si, sj, i, j) {
-                            (true, false, TIndex::Single(e), _) => {
-                                let ic = self.tmp_expr(e)?;
-                                let jx = self.idx_tmp(j)?;
-                                self.line(&format!(
-                                    "rt::index::assign_row_multi(&mut {p}, {ic}, &{jx}, {v})?;"
-                                ));
-                            }
-                            (false, true, _, TIndex::Single(e)) => {
-                                let ix = self.idx_tmp(i)?;
-                                let jc = self.tmp_expr(e)?;
-                                self.line(&format!(
-                                    "rt::index::assign_col_multi(&mut {p}, &{ix}, {jc}, {v})?;"
-                                ));
-                            }
-                            _ => {
-                                let ix = self.idx_tmp(i)?;
-                                let jx = self.idx_tmp(j)?;
-                                self.line(&format!(
-                                    "rt::index::assign_submatrix(&mut {p}, &{ix}, &{jx}, {v})?;"
-                                ));
-                            }
-                        }
+                    (U::Matrix | U::ComplexMatrix, [_] | [_, _]) => {
+                        self.assign_matrix(&p, idxs, v)?;
                     }
                     _ => {
                         let ty = ty.clone();
-                        self.assign_general(lhs, &p, &ty, idxs, v)?;
+                        self.assign_general(&p, &ty, idxs, v)?;
                     }
                 }
                 Ok(())
@@ -489,16 +492,64 @@ impl Gen {
         }
     }
 
+    /// Assigns `v` to matrix place `p` indexed by `idxs` (one or two indexes).
+    fn assign_matrix(&mut self, p: &str, idxs: &[TIndex], v: &str) -> R<()> {
+        match idxs {
+            [i] => {
+                if let TIndex::Single(e) = i
+                    && e.ty == U::Int
+                {
+                    let ic = self.tmp_expr(e)?;
+                    self.line(&format!("rt::index::assign_row(&mut {p}, {ic}, {v})?;"));
+                } else {
+                    let ix = self.idx_tmp(i)?;
+                    self.line(&format!(
+                        "rt::index::assign_submatrix(&mut {p}, &{ix}, &rt::index::Idx::All, {v})?;"
+                    ));
+                }
+            }
+            [i, j] => {
+                let si = matches!(i, TIndex::Single(e) if e.ty == U::Int);
+                let sj = matches!(j, TIndex::Single(e) if e.ty == U::Int);
+                match (si, sj, i, j) {
+                    (true, true, TIndex::Single(a), TIndex::Single(b)) => {
+                        let ic = self.tmp_expr(a)?;
+                        let jc = self.tmp_expr(b)?;
+                        self.line(&format!(
+                            "*rt::index::mat_at_mut(&mut {p}, {ic}, {jc})? = {v};"
+                        ));
+                    }
+                    (true, false, TIndex::Single(e), _) => {
+                        let ic = self.tmp_expr(e)?;
+                        let jx = self.idx_tmp(j)?;
+                        self.line(&format!(
+                            "rt::index::assign_row_multi(&mut {p}, {ic}, &{jx}, {v})?;"
+                        ));
+                    }
+                    (false, true, _, TIndex::Single(e)) => {
+                        let ix = self.idx_tmp(i)?;
+                        let jc = self.tmp_expr(e)?;
+                        self.line(&format!(
+                            "rt::index::assign_col_multi(&mut {p}, &{ix}, {jc}, {v})?;"
+                        ));
+                    }
+                    _ => {
+                        let ix = self.idx_tmp(i)?;
+                        let jx = self.idx_tmp(j)?;
+                        self.line(&format!(
+                            "rt::index::assign_submatrix(&mut {p}, &{ix}, &{jx}, {v})?;"
+                        ));
+                    }
+                }
+            }
+            _ => return Err(self.internal("matrix index count")),
+        }
+        Ok(())
+    }
+
     /// Assigns `v` to `p[idxs...]` (with `p` of type `ty`) one index at a time: a single index
     /// selects an element, a multi-index loops over its positions and the elements of `v`.
-    fn assign_general(
-        &mut self,
-        lhs: &TLValue,
-        p: &str,
-        ty: &U,
-        idxs: &[TIndex],
-        v: &str,
-    ) -> R<()> {
+    fn assign_general(&mut self, p: &str, ty: &U, idxs: &[TIndex], v: &str) -> R<()> {
         let Some((first, rest)) = idxs.split_first() else {
             self.line(&format!("{p} = {v};"));
             return Ok(());
@@ -507,11 +558,8 @@ impl Gen {
             U::Array(t) => (**t).clone(),
             U::Vector | U::RowVector => U::Real,
             U::ComplexVector | U::ComplexRowVector => U::Complex,
-            U::Matrix | U::ComplexMatrix => {
-                return Err(unsupported(
-                    lhs.span,
-                    "this multi-index assignment into a matrix is not supported by stanc-rs yet",
-                ));
+            U::Matrix | U::ComplexMatrix if idxs.len() <= 2 => {
+                return self.assign_matrix(p, idxs, v);
             }
             _ => return Err(self.internal("indexing a scalar")),
         };
@@ -522,7 +570,7 @@ impl Gen {
                 self.line("{");
                 self.indent += 1;
                 self.line(&format!("let {t} = rt::index::at_mut(&mut {p}, {ic})?;"));
-                self.assign_general(lhs, &format!("(*{t})"), &inner, rest, v)?;
+                self.assign_general(&format!("(*{t})"), &inner, rest, v)?;
                 self.indent -= 1;
                 self.line("}");
             }
@@ -537,7 +585,7 @@ impl Gen {
                 ));
                 self.line(&format!("for ({k}, {x}) in {pos}.into_iter().zip({v}) {{"));
                 self.indent += 1;
-                self.assign_general(lhs, &format!("{p}[{k}]"), &inner, rest, &x)?;
+                self.assign_general(&format!("{p}[{k}]"), &inner, rest, &x)?;
                 self.indent -= 1;
                 self.line("}");
             }

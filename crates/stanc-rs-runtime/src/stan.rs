@@ -303,3 +303,46 @@ pub fn unflatten_mat<T: Real>(
 ) -> Matrix<T> {
     template.map(|_| next_theta(theta, k))
 }
+
+/// Element `[i][j]` (zero based) of a two-dimensional array walked along with a matrix.
+pub fn at2<T: Clone>(v: &[Vec<T>], i: usize, j: usize) -> Result<T> {
+    v.get(i).and_then(|row| row.get(j)).cloned().ok_or_else(|| {
+        ModelError::new(
+            ErrorKind::Size,
+            format!("array has no element [{}][{}]", i + 1, j + 1),
+        )
+    })
+}
+
+/// Checks that every row of a two-dimensional array has `cols` elements.
+pub fn check_rows<T>(function: &str, v: &[Vec<T>], cols: usize) -> Result<()> {
+    if let Some(row) = v.iter().find(|row| row.len() != cols) {
+        return Err(ModelError::new(
+            ErrorKind::Size,
+            format!(
+                "{function}: array rows have {} elements but the matrix has {cols} columns",
+                row.len()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Stan's compressed sparse row arguments `(m, n, w, v, u)`, with one-based `v` and `u`.
+pub fn csr<T: Clone>(
+    m: i64,
+    n: i64,
+    w: &[T],
+    v: &[i64],
+    u: &[i64],
+) -> Result<stanmath_rs::linalg::CsrMatrix<T>> {
+    let zero_based =
+        |xs: &[i64]| -> Result<Vec<usize>> { xs.iter().map(|x| usize_of(*x - 1)).collect() };
+    Ok(stanmath_rs::linalg::CsrMatrix {
+        nrows: usize_of(m)?,
+        ncols: usize_of(n)?,
+        values: w.to_vec(),
+        columns: zero_based(v)?,
+        row_starts: zero_based(u)?,
+    })
+}

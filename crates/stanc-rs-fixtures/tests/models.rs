@@ -479,6 +479,17 @@ fn constraint_functions() {
     assert_close(at("b.2.1"), 7.0, 0.0);
     assert_close(at("b.1.1"), 8.0, 0.0);
     assert_close(at("b.1.2"), 0.0, 0.0);
+    // Rows and elements of matrices inside arrays.
+    for (n, v) in [
+        ("mm.1.1.1", 0.0),
+        ("mm.1.2.1", 6.0),
+        ("mm.1.2.2", 4.0),
+        ("mm.2.1.2", 5.0),
+        ("mm.2.2.1", 7.0),
+        ("mm.2.2.2", 0.0),
+    ] {
+        assert_close(at(n), v, 0.0);
+    }
     // The `_jacobian` calls add the log Jacobians only when the Jacobian is requested.
     let base: f64 = theta.iter().map(|v| normal_lpdf(*v, 0.0, 1.0)).sum();
     assert_close(m.log_density(&theta, NO_JAC).unwrap(), base, 1e-12);
