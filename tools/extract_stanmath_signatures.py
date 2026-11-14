@@ -109,7 +109,28 @@ SUFFIXES = [
 ]
 
 
+# stanmath-rs functions that implement other arities of a Stan function under their own names.
+ALIASES = {
+    "wiener5_lpdf": "wiener_lpdf",
+    "wiener5_lupdf": "wiener_lupdf",
+    "wiener5_prec_lpdf": "wiener_lpdf",
+    "wiener5_prec_lupdf": "wiener_lupdf",
+    "wiener_full_lpdf": "wiener_lpdf",
+    "wiener_full_lupdf": "wiener_lupdf",
+    "wiener_full_prec_lpdf": "wiener_lpdf",
+    "wiener_full_prec_lupdf": "wiener_lupdf",
+    "wiener4_prec_lcdf_unnorm": "wiener_lcdf_unnorm",
+    "wiener4_prec_lccdf_unnorm": "wiener_lccdf_unnorm",
+    "wiener_full_lcdf_unnorm": "wiener_lcdf_unnorm",
+    "wiener_full_lccdf_unnorm": "wiener_lccdf_unnorm",
+    "wiener_full_prec_lcdf_unnorm": "wiener_lcdf_unnorm",
+    "wiener_full_prec_lccdf_unnorm": "wiener_lccdf_unnorm",
+}
+
+
 def stan_name_of(name, want):
+    if name in ALIASES:
+        return ALIASES[name]
     if name in want:
         return name
     for suf in sorted(SUFFIXES, key=len, reverse=True):

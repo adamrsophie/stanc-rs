@@ -12,11 +12,13 @@
 
 pub mod check;
 pub mod data;
+pub mod generic;
 pub mod index;
 pub mod io;
 pub mod names;
 pub mod ops;
 pub mod stan;
+pub mod transform;
 
 use std::fmt;
 
@@ -144,6 +146,9 @@ pub struct VarInfo {
     pub complex: bool,
     /// The two innermost dimensions are a matrix (stored column-major).
     pub matrix: bool,
+    /// For a tuple (or array of tuples, with `dims` the array dimensions): the slots, whose
+    /// names are ignored.
+    pub slots: Vec<VarInfo>,
 }
 
 /// The block of an output variable.

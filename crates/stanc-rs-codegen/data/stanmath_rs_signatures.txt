@@ -737,6 +737,20 @@ distributions weibull_lcdf weibull_lcdf<Y, A, S>(Y, A, S) -> Result<Promoted<(Y,
 distributions weibull_lpdf weibull_lpdf<Y, A, S>(Y, A, S) -> Result<Promoted<(Y, A, S), 3>>
 distributions weibull_lupdf weibull_lupdf<Y, A, S>(Y, A, S) -> Result<Promoted<(Y, A, S), 3>>
 distributions weibull_rng weibull_rng<R: Rng+?Sized>(f64, f64, &mut R) -> Result<f64>
+distributions wiener_lccdf_unnorm wiener4_prec_lccdf_unnorm<Y, A, T0, W, V>(Y, A, T0, W, V, f64) -> Result<WienerOut<(Y, A, T0, W, V, f64, f64, f64), 8>>
+distributions wiener_lcdf_unnorm wiener4_prec_lcdf_unnorm<Y, A, T0, W, V>(Y, A, T0, W, V, f64) -> Result<WienerOut<(Y, A, T0, W, V, f64, f64, f64), 8>>
+distributions wiener_lpdf wiener5_lpdf<Y, A, T0, W, V, SV>(Y, A, T0, W, V, SV) -> Result<WienerOut<(Y, A, T0, W, V, SV), 6>>
+distributions wiener_lupdf wiener5_lupdf<Y, A, T0, W, V, SV>(Y, A, T0, W, V, SV) -> Result<WienerOut<(Y, A, T0, W, V, SV), 6>>
+distributions wiener_lpdf wiener5_prec_lpdf<Y, A, T0, W, V, SV>(Y, A, T0, W, V, SV, f64) -> Result<WienerOut<(Y, A, T0, W, V, SV, f64, f64), 8>>
+distributions wiener_lupdf wiener5_prec_lupdf<Y, A, T0, W, V, SV>(Y, A, T0, W, V, SV, f64) -> Result<WienerOut<(Y, A, T0, W, V, SV, f64, f64), 8>>
+distributions wiener_lccdf_unnorm wiener_full_lccdf_unnorm<Y, A, T0, W, V, SV, SW, ST0>(Y, A, T0, W, V, SV, SW, ST0) -> Result<WienerOut<(Y, A, T0, W, V, SV, SW, ST0), 8>>
+distributions wiener_lcdf_unnorm wiener_full_lcdf_unnorm<Y, A, T0, W, V, SV, SW, ST0>(Y, A, T0, W, V, SV, SW, ST0) -> Result<WienerOut<(Y, A, T0, W, V, SV, SW, ST0), 8>>
+distributions wiener_lpdf wiener_full_lpdf<Y, A, T0, W, V, SV, SW, ST0>(Y, A, T0, W, V, SV, SW, ST0) -> Result<WienerOut<(Y, A, T0, W, V, SV, SW, ST0), 8>>
+distributions wiener_lupdf wiener_full_lupdf<Y, A, T0, W, V, SV, SW, ST0>(Y, A, T0, W, V, SV, SW, ST0) -> Result<WienerOut<(Y, A, T0, W, V, SV, SW, ST0), 8>>
+distributions wiener_lccdf_unnorm wiener_full_prec_lccdf_unnorm<Y, A, T0, W, V, SV, SW, ST0>(Y, A, T0, W, V, SV, SW, ST0, f64) -> Result<WienerOut<(Y, A, T0, W, V, SV, SW, ST0), 8>>
+distributions wiener_lcdf_unnorm wiener_full_prec_lcdf_unnorm<Y, A, T0, W, V, SV, SW, ST0>(Y, A, T0, W, V, SV, SW, ST0, f64) -> Result<WienerOut<(Y, A, T0, W, V, SV, SW, ST0), 8>>
+distributions wiener_lpdf wiener_full_prec_lpdf<Y, A, T0, W, V, SV, SW, ST0>(Y, A, T0, W, V, SV, SW, ST0, f64) -> Result<WienerOut<(Y, A, T0, W, V, SV, SW, ST0), 8>>
+distributions wiener_lupdf wiener_full_prec_lupdf<Y, A, T0, W, V, SV, SW, ST0>(Y, A, T0, W, V, SV, SW, ST0, f64) -> Result<WienerOut<(Y, A, T0, W, V, SV, SW, ST0), 8>>
 distributions wiener_lccdf_unnorm wiener_lccdf_unnorm<Y, A, T0, W, V>(Y, A, T0, W, V) -> Result<WienerOut<(Y, A, T0, W, V), 5>>
 distributions wiener_lcdf_unnorm wiener_lcdf_unnorm<Y, A, T0, W, V>(Y, A, T0, W, V) -> Result<WienerOut<(Y, A, T0, W, V), 5>>
 distributions wiener_lpdf wiener_lpdf<Y, A, T, B, D>(Y, A, T, B, D) -> Result<Promoted<(Y, A, T, B, D), 5>>

@@ -433,8 +433,20 @@ impl Gen {
 
     /// Emits the constraint checks of a declared variable.
     fn check_decl(&mut self, d: &Decl, _ad: &Ad) -> R<()> {
+        let var = self.var(&d.name);
+        self.check_value(&var, &d.name, &d.ty, &d.trans)
+    }
+
+    /// Emits the constraint checks of value `var` (named `name` in messages).
+    fn check_value(
+        &mut self,
+        var: &str,
+        name: &str,
+        ty: &TSizedType,
+        trans: &TTransformation,
+    ) -> R<()> {
         if matches!(
-            d.trans,
+            trans,
             TTransformation::Identity
                 | TTransformation::Offset(_)
                 | TTransformation::Multiplier(_)
@@ -442,12 +454,12 @@ impl Gen {
         ) {
             return Ok(());
         }
-        let (dims, inner) = parts(&d.ty);
-        let var = self.var(&d.name);
-        let name = format!("{:?}", d.name);
-        let trans = d.trans.clone();
+        let (dims, inner) = parts(ty);
+        let label = name.to_string();
+        let name = format!("{name:?}");
+        let trans = trans.clone();
         let inner = inner.clone();
-        self.for_leaves(&var, dims.len(), &mut |g, leaf| {
+        self.for_leaves(var, dims.len(), &mut |g, leaf| {
             let vec = || format!("&rt::check::vals({leaf})");
             let mat = || format!("&rt::check::mat_vals({leaf})");
             match &trans {
@@ -508,11 +520,21 @@ impl Gen {
                 TTransformation::StochasticRow => {
                     g.line(&format!("rt::check::stochastic_row({name}, {})?;", mat()))
                 }
-                TTransformation::Tuple(_) => {
-                    return Err(unsupported(
-                        Default::default(),
-                        "constraints on tuple components are not supported by stanc-rs yet",
-                    ));
+                TTransformation::Tuple(ts) => {
+                    let TSizedType::Tuple(tys) = &inner else {
+                        return Err(unsupported(
+                            Default::default(),
+                            "a tuple constraint on a non-tuple",
+                        ));
+                    };
+                    for (k, (t, tr)) in tys.iter().zip(ts).enumerate() {
+                        g.check_value(
+                            &format!("{leaf}.{k}"),
+                            &format!("{label}.{}", k + 1),
+                            t,
+                            tr,
+                        )?;
+                    }
                 }
                 TTransformation::Identity
                 | TTransformation::Offset(_)
@@ -669,6 +691,12 @@ impl Gen {
                 }
             }
             TSizedType::Complex => "in__.complex()?".into(),
+            TSizedType::ComplexVector(n) | TSizedType::ComplexRowVector(n) => {
+                format!("in__.complex_vec({})?", self.size(n)?)
+            }
+            TSizedType::ComplexMatrix(r, c) => {
+                format!("in__.complex_matrix({}, {})?", self.size(r)?, self.size(c)?)
+            }
             _ => {
                 return Err(unsupported(
                     Default::default(),
@@ -713,6 +741,12 @@ impl Gen {
         let inner_size = match inner {
             TSizedType::Real => "1_usize".to_string(),
             TSizedType::Complex => "2_usize".to_string(),
+            TSizedType::ComplexVector(n) | TSizedType::ComplexRowVector(n) => {
+                format!("2 * {}", self.size(n)?)
+            }
+            TSizedType::ComplexMatrix(r, c) => {
+                format!("2 * {} * {}", self.size(r)?, self.size(c)?)
+            }
             TSizedType::Vector(n) | TSizedType::RowVector(n) => {
                 let n = self.size(n)?;
                 match d.trans {
@@ -752,11 +786,16 @@ impl Gen {
 
     /// A `rt::VarInfo` literal for an output variable.
     fn var_info(&mut self, d: &Decl, block: &str) -> R<String> {
-        let (dims, inner) = parts(&d.ty);
+        self.var_info_of(&d.name, &d.ty, block)
+    }
+
+    fn var_info_of(&mut self, name: &str, ty: &TSizedType, block: &str) -> R<String> {
+        let (dims, inner) = parts(ty);
         let mut ds = Vec::new();
         for e in dims {
             ds.push(self.size(e)?);
         }
+        let mut slots = Vec::new();
         let (complex, matrix) = match inner {
             TSizedType::Int | TSizedType::Real => (false, false),
             TSizedType::Complex => (true, false),
@@ -778,18 +817,18 @@ impl Gen {
                 ds.push(self.size(c)?);
                 (true, true)
             }
-            TSizedType::Tuple(_) => {
-                return Err(unsupported(
-                    Default::default(),
-                    "tuple-valued output variables are not supported by stanc-rs yet",
-                ));
+            TSizedType::Tuple(ts) => {
+                for t in ts {
+                    slots.push(self.var_info_of("", t, block)?);
+                }
+                (false, false)
             }
             TSizedType::Array(..) => unreachable!("array parts"),
         };
         Ok(format!(
-            "rt::VarInfo {{ name: {:?}.into(), dims: vec![{}], block: rt::VarBlock::{block}, complex: {complex}, matrix: {matrix} }}",
-            d.name,
-            ds.join(", ")
+            "rt::VarInfo {{ name: {name:?}.into(), dims: vec![{}], block: rt::VarBlock::{block}, complex: {complex}, matrix: {matrix}, slots: vec![{}] }}",
+            ds.join(", "),
+            slots.join(", ")
         ))
     }
 
@@ -826,6 +865,12 @@ impl Gen {
                     g.scalar_bound(m)?
                 ),
                 (TSizedType::Complex, _) => format!("w__.push({leaf}.re); w__.push({leaf}.im);"),
+                (TSizedType::ComplexVector(_) | TSizedType::ComplexRowVector(_), _) => {
+                    format!("for z__ in {leaf}.iter() {{ w__.push(z__.re); w__.push(z__.im); }}")
+                }
+                (TSizedType::ComplexMatrix(..), _) => {
+                    format!("for z__ in {leaf}.as_slice() {{ w__.push(z__.re); w__.push(z__.im); }}")
+                }
                 (TSizedType::Vector(_) | TSizedType::RowVector(_) | TSizedType::Matrix(..), t) => {
                     let slice = if matches!(inner, TSizedType::Matrix(..)) {
                         format!("{leaf}.as_slice()")

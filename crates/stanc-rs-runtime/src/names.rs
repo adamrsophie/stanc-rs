@@ -31,30 +31,68 @@ fn column_major_indices(dims: &[usize]) -> Vec<Vec<usize>> {
     out
 }
 
-/// Flattened names (`beta.1.2`, `z.real`) of the included variables.
+/// Flattened names (`beta.1.2`, `z.real`, `t.1:2`) of the included variables.
 pub fn flat_names(vars: &[VarInfo], include_tp: bool, include_gq: bool) -> Vec<String> {
     let mut out = Vec::new();
     for v in vars.iter().filter(|v| included(v, include_tp, include_gq)) {
-        for idx in column_major_indices(&v.dims) {
-            let mut name = v.name.clone();
-            for i in idx {
-                name.push('.');
-                name.push_str(&i.to_string());
-            }
-            if v.complex {
-                out.push(format!("{name}.real"));
-                out.push(format!("{name}.imag"));
-            } else {
-                out.push(name);
-            }
-        }
+        names_of(v, &v.name, &mut out);
     }
     out
 }
 
+fn names_of(v: &VarInfo, prefix: &str, out: &mut Vec<String>) {
+    for idx in column_major_indices(&v.dims) {
+        let mut name = prefix.to_string();
+        for i in idx {
+            name.push('.');
+            name.push_str(&i.to_string());
+        }
+        if !v.slots.is_empty() {
+            for (k, s) in v.slots.iter().enumerate() {
+                names_of(s, &format!("{name}:{}", k + 1), out);
+            }
+        } else if v.complex {
+            out.push(format!("{name}.real"));
+            out.push(format!("{name}.imag"));
+        } else {
+            out.push(name);
+        }
+    }
+}
+
+/// The number of `f64`s in one value described by `info`.
+pub fn value_len(info: &VarInfo) -> usize {
+    let unit = if info.slots.is_empty() {
+        if info.complex { 2 } else { 1 }
+    } else {
+        info.slots.iter().map(value_len).sum()
+    };
+    info.dims.iter().product::<usize>() * unit
+}
+
 /// Reorders values from storage order (arrays row-major, matrices column-major, complex parts
-/// adjacent) to CmdStan's output order (column-major over all indices, complex parts adjacent).
+/// adjacent, tuple slots in sequence) to CmdStan's output order (column-major over all indices,
+/// complex parts adjacent, each tuple element's slots in sequence).
 pub fn to_output_order(values: &[f64], info: &VarInfo) -> Vec<f64> {
+    if !info.slots.is_empty() {
+        let elem: usize = info.slots.iter().map(value_len).sum();
+        let k = info.dims.len();
+        // Row-major strides over the array dimensions.
+        let mut stride = vec![elem; k];
+        for d in (0..k.saturating_sub(1)).rev() {
+            stride[d] = stride[d + 1] * info.dims[d + 1];
+        }
+        let mut out = Vec::with_capacity(values.len());
+        for idx in column_major_indices(&info.dims) {
+            let mut p: usize = idx.iter().zip(&stride).map(|(i, st)| (i - 1) * st).sum();
+            for s in &info.slots {
+                let n = value_len(s);
+                out.extend(to_output_order(&values[p..p + n], s));
+                p += n;
+            }
+        }
+        return out;
+    }
     let unit = if info.complex { 2 } else { 1 };
     let dims = &info.dims;
     if dims.len() <= 1 {
@@ -97,6 +135,7 @@ mod tests {
             block: VarBlock::Parameters,
             complex: false,
             matrix,
+            slots: Vec::new(),
         }
     }
 
@@ -115,5 +154,18 @@ mod tests {
         let m = info(vec![2, 3], true);
         let vals = [11.0, 21.0, 12.0, 22.0, 13.0, 23.0];
         assert_eq!(to_output_order(&vals, &m), vals.to_vec());
+        // array[2] tuple(real, vector[2]) stored as t[1].1, t[1].2[1], t[1].2[2], t[2]...
+        let t = VarInfo {
+            dims: vec![2],
+            slots: vec![info(vec![], false), info(vec![2], false)],
+            ..info(vec![], false)
+        };
+        let names = flat_names(std::slice::from_ref(&t), false, false);
+        assert_eq!(
+            names,
+            ["x.1:1", "x.1:2.1", "x.1:2.2", "x.2:1", "x.2:2.1", "x.2:2.2"]
+        );
+        let vals = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        assert_eq!(to_output_order(&vals, &t), vals.to_vec());
     }
 }

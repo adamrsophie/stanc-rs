@@ -419,3 +419,65 @@ fn algebra_integration_and_functionals() {
     assert_close(out[7], 2.0 * a + 2.0 + 20.0, 1e-14);
     check_gradient(&m, &theta, FULL);
 }
+
+#[test]
+#[allow(clippy::needless_range_loop)]
+fn constraint_functions() {
+    let m = fx::transforms::Model::new(&data("{}"), 0).unwrap();
+    let theta = [0.3, -0.2, 0.5, 0.7];
+    let (y, z) = (&theta[0..3], theta[3]);
+    let names = m.param_names(true, true);
+    let out = m.write_array(&theta, true, true, &mut rng()).unwrap();
+    assert_eq!(out.len(), names.len());
+    let at = |n: &str| out[names.iter().position(|x| x == n).unwrap()];
+    // The constrained values agree with the parameter transforms of the runtime.
+    let s = stanc_rs_runtime::transform::simplex(y, None).unwrap();
+    for (k, sk) in s.iter().enumerate() {
+        assert_close(at(&format!("s.{}", k + 1)), *sk, 1e-14);
+        assert_close(at(&format!("s2.{}", k + 1)), *sk, 1e-14);
+    }
+    assert_close(at("p"), 1.0 + z.exp(), 1e-14);
+    // Unconstraining inverts constraining.
+    for k in 0..3 {
+        assert_close(at(&format!("y_back.{}", k + 1)), y[k], 1e-10);
+    }
+    assert_close(at("z_back"), z, 1e-12);
+    // ordered_constrain is applied to each array element: x[1] = y[1], x[k] = x[k-1] + exp(y[k]).
+    for (i, scale) in [1.0, 2.0].iter().enumerate() {
+        let mut x = scale * y[0];
+        assert_close(at(&format!("o.{}.1", i + 1)), x, 1e-14);
+        for k in 1..3 {
+            x += (scale * y[k]).exp();
+            assert_close(at(&format!("o.{}.{}", i + 1, k + 1)), x, 1e-14);
+            assert_close(
+                at(&format!("o_back.{}.{}", i + 1, k + 1)),
+                scale * y[k],
+                1e-10,
+            );
+        }
+    }
+    // Tuple outputs are named `t:1`, `t:2.1`, ... and written slot by slot.
+    assert_close(at("t:1"), z, 0.0);
+    assert_close(at("t:2.1"), 1.0, 0.0);
+    assert_close(at("t:2.2"), 2.0, 0.0);
+    // Vectorized pow over two vectors.
+    for k in 0..3 {
+        assert_close(
+            at(&format!("w.{}", k + 1)),
+            y[k].exp().powf(y[k] + 1.0),
+            1e-14,
+        );
+    }
+    // The `_jacobian` calls add the log Jacobians only when the Jacobian is requested.
+    let base: f64 = theta.iter().map(|v| normal_lpdf(*v, 0.0, 1.0)).sum();
+    assert_close(m.log_density(&theta, NO_JAC).unwrap(), base, 1e-12);
+    let mut simplex_jac = 0.0;
+    stanc_rs_runtime::transform::simplex(y, Some(&mut simplex_jac)).unwrap();
+    assert_close(
+        m.log_density(&theta, FULL).unwrap(),
+        base + simplex_jac + z,
+        1e-12,
+    );
+    check_gradient(&m, &theta, FULL);
+    check_gradient(&m, &theta, NO_JAC);
+}

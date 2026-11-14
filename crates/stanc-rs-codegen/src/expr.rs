@@ -733,6 +733,184 @@ impl Gen {
         Ok(format!("{}::<{s}>({})?", def.rust_name, parts.join(", ")))
     }
 
+    /// Stan's `<transform>_constrain`, `_jacobian`, and `_unconstrain` functions, mapped over
+    /// leading array dimensions.
+    fn constraint_call(&mut self, e: &TExpr, name: &str, args: &[TExpr]) -> R<Option<String>> {
+        let Some((transform, kind)) = ["_constrain", "_jacobian", "_unconstrain"]
+            .iter()
+            .find_map(|k| name.strip_suffix(k).map(|t| (t, &k[1..])))
+        else {
+            return Ok(None);
+        };
+        let bounded = matches!(
+            transform,
+            "lower_bound" | "upper_bound" | "lower_upper_bound" | "offset_multiplier"
+        );
+        let known = bounded
+            || matches!(
+                transform,
+                "ordered"
+                    | "positive_ordered"
+                    | "simplex"
+                    | "unit_vector"
+                    | "sum_to_zero"
+                    | "cholesky_factor_corr"
+                    | "cholesky_factor_cov"
+                    | "corr_matrix"
+                    | "cov_matrix"
+                    | "stochastic_column"
+                    | "stochastic_row"
+            );
+        if !known || args.is_empty() {
+            return Ok(None);
+        }
+        let (dims, base) = args[0].ty.array_dims();
+        let base = base.clone();
+        let jac = kind == "jacobian";
+        let ad = if jac || e.ad.has_autodiff() {
+            Ad::AutoDiffable
+        } else {
+            Ad::DataOnly
+        };
+        // Bind every argument once; arguments with the value's array dimensions are mapped.
+        let mut binds = Vec::new();
+        let mut mapped = Vec::new();
+        for (i, a) in args.iter().enumerate() {
+            let code = if leaf_scalar(&a.ty) == U::Int {
+                self.expr(a)?
+            } else {
+                self.expr_as(a, &a.ty, &ad.clone().fill_for(&a.ty))?
+            };
+            binds.push(format!("let a{i}__ = {code};"));
+            mapped.push(
+                i == 0 || (a.ty.array_dims().0 == dims && dims > 0 && leaf_scalar(&a.ty) != U::Int),
+            );
+        }
+        // At the leaf, mapped arguments are references named `x{i}__`; the rest are `a{i}__`.
+        let r = |i: usize| -> String {
+            if mapped[i] {
+                format!("x{i}__")
+            } else {
+                format!("(&a{i}__)")
+            }
+        };
+        let lp = match kind {
+            "jacobian" => "if jacobian__ { Some(&mut *target__) } else { None }",
+            "constrain" => "None",
+            _ => "",
+        };
+        let bound = |i: usize| -> String {
+            let x = r(i);
+            match args[i].ty.array_dims().1 {
+                U::Real | U::Int => format!("rt::io::Bound::Scalar(*{x})"),
+                U::Matrix => format!("rt::io::Bound::Each({x}.as_slice())"),
+                _ => format!("rt::io::Bound::Each(&{x}[..])"),
+            }
+        };
+        let x = r(0);
+        let leaf = if bounded {
+            let bs: Vec<String> = (1..args.len()).map(bound).collect();
+            let f = if kind == "unconstrain" {
+                format!("rt::transform::free::{transform}(v__, {})", bs.join(", "))
+            } else {
+                format!("rt::transform::{transform}(v__, {}, {lp})", bs.join(", "))
+            };
+            match base {
+                U::Real => format!("rt::transform::on_scalar(*{x}, |v__| {f})?"),
+                U::Matrix => format!("rt::io::on_matrix({x}.clone(), |v__| {f})?"),
+                _ => format!("{{ let v__ = {x}.clone(); {f}? }}"),
+            }
+        } else {
+            let t = if transform == "sum_to_zero" && base == U::Matrix {
+                "sum_to_zero_matrix"
+            } else {
+                transform
+            };
+            let arg = if base == U::Matrix {
+                x.clone()
+            } else {
+                format!("&{x}[..]")
+            };
+            let ints: Vec<String> = (1..args.len()).map(|i| format!("*{}", r(i))).collect();
+            if kind == "unconstrain" {
+                format!("rt::transform::free::{t}({arg})?")
+            } else {
+                let mut ps = vec![arg];
+                ps.extend(ints);
+                ps.push(lp.to_string());
+                format!("rt::transform::{t}({})?", ps.join(", "))
+            }
+        };
+        // Map over array dimensions from the innermost out.
+        let mut code = leaf;
+        for d in (0..dims).rev() {
+            let mut inner = String::new();
+            for i in (1..args.len()).filter(|i| mapped[*i]) {
+                let src = if d == 0 {
+                    format!("&a{i}__")
+                } else {
+                    format!("x{i}__")
+                };
+                inner.push_str(&format!("let x{i}__ = rt::transform::at({src}, i{d}__)?; "));
+            }
+            let src = if d == 0 {
+                "a0__".to_string()
+            } else {
+                "x0__".to_string()
+            };
+            code = format!(
+                "{src}.iter().enumerate().map(|(i{d}__, x0__)| -> rt::Result<_> {{ {inner}Ok({code}) }}).collect::<rt::Result<Vec<_>>>()?"
+            );
+        }
+        if dims == 0 {
+            code = format!(
+                "{{ let x0__ = &a0__; {} {code} }}",
+                (1..args.len())
+                    .filter(|i| mapped[*i])
+                    .map(|i| format!("let x{i}__ = &a{i}__;"))
+                    .collect::<String>()
+            );
+        }
+        let mut out = format!("{{ {} {code} }}", binds.join(" "));
+        if jac && !e.ad.has_autodiff() {
+            out = self.to_f64(out, &e.ty, &Ad::AutoDiffable.fill_for(&e.ty));
+        }
+        Ok(Some(out))
+    }
+
+    /// Operators written as function calls (`add(a, b)`, `minus(x)`, `transpose(x)`, ...).
+    fn operator_call(&mut self, e: &TExpr, name: &str, args: &[TExpr]) -> R<Option<String>> {
+        use BinOp::*;
+        let bin = match name {
+            "add" => Plus,
+            "subtract" => Minus,
+            "multiply" => Times,
+            "divide" => Divide,
+            "elt_multiply" => EltTimes,
+            "elt_divide" => EltDivide,
+            "modulus" => Modulo,
+            "minus" | "transpose" if args.len() == 1 => {
+                let kind = if name == "minus" {
+                    TExprKind::PrefixOp(PrefixOp::Minus, Box::new(args[0].clone()))
+                } else {
+                    TExprKind::Transpose(Box::new(args[0].clone()))
+                };
+                let saved = self.in_operator.replace(e.span);
+                let r = self.expr(&TExpr { kind, ..e.clone() });
+                self.in_operator = saved;
+                return r.map(Some);
+            }
+            _ => return Ok(None),
+        };
+        if args.len() != 2 {
+            return Ok(None);
+        }
+        let saved = self.in_operator.replace(e.span);
+        let r = self.binop(e, &args[0], bin, &args[1]);
+        self.in_operator = saved;
+        r.map(Some)
+    }
+
     /// Higher-order functions that lower to direct calls of the user-defined function argument.
     fn higher_order(&mut self, e: Option<&TExpr>, name: &str, args: &[TExpr]) -> R<Option<String>> {
         let fn_name = |a: &TExpr| match &a.kind {
@@ -790,6 +968,17 @@ impl Gen {
             .map(|e| e.span)
             .or_else(|| args.first().map(|a| a.span))
             .unwrap_or_default();
+        if let Some(e) = e
+            && self.in_operator != Some(e.span)
+            && let Some(code) = self.operator_call(e, name, args)?
+        {
+            return Ok(code);
+        }
+        if let Some(e) = e
+            && let Some(code) = self.constraint_call(e, name, args)?
+        {
+            return Ok(code);
+        }
         if let Some(code) = self.higher_order(e, name, args)? {
             return Ok(code);
         }
@@ -834,7 +1023,163 @@ impl Gen {
             let b = self.lib_call_named(span, name, &args, &result_ad)?;
             return Ok(format!("(if propto__ {{ {b} }} else {{ {a} }})"));
         }
+        if let Some(e) = e {
+            let shapes: Vec<(Shape, bool)> = args
+                .iter()
+                .map(|a| (Shape::of(&a.ty), a.ad.has_autodiff()))
+                .collect();
+            if library::resolve(name, &shapes, result_ad.has_autodiff()).is_none()
+                && let Some(code) = self.generic_call(e, name, &args)?
+            {
+                return Ok(code);
+            }
+        }
         self.lib_call_named(span, name, &args, &result_ad)
+    }
+
+    /// Structural functions for element types stanmath-rs does not cover, from `rt::generic`.
+    fn generic_call(&mut self, e: &TExpr, name: &str, args: &[TExpr]) -> R<Option<String>> {
+        let tys: Vec<&U> = args.iter().map(|a| &a.ty).collect();
+        let one_d = |t: &U| {
+            matches!(
+                t,
+                U::Array(_) | U::Vector | U::RowVector | U::ComplexVector | U::ComplexRowVector
+            )
+        };
+        let mat = |t: &U| matches!(t, U::Matrix | U::ComplexMatrix);
+        // Containers are converted to the result's autodiff level so element types agree.
+        let at = |g: &mut Gen, i: usize| -> R<String> {
+            let a = &args[i];
+            let ad = e.ad.clone().fill_for(&a.ty);
+            if a.ty == U::Int || crate::expr::leaf_scalar(&a.ty) == U::Int {
+                g.expr(a)
+            } else {
+                g.expr_as(a, &a.ty, &ad)
+            }
+        };
+        let ints = |g: &mut Gen, from: usize| -> R<Vec<String>> {
+            args[from..].iter().map(|a| g.expr(a)).collect()
+        };
+        let elem_of_result = |t: &U| -> U {
+            match t {
+                U::Vector | U::RowVector | U::Matrix => U::Real,
+                U::ComplexVector | U::ComplexRowVector | U::ComplexMatrix => U::Complex,
+                t => t.clone(),
+            }
+        };
+        let code = match (name, tys.as_slice()) {
+            ("size", [U::Int | U::Real]) => "1_i64".to_string(),
+            ("head" | "tail", [t, U::Int]) if one_d(t) => {
+                let v = at(self, 0)?;
+                let n = self.expr(&args[1])?;
+                format!("rt::generic::{name}(&{v}, {n})?")
+            }
+            ("segment", [t, U::Int, U::Int]) if one_d(t) => {
+                let v = at(self, 0)?;
+                let n = ints(self, 1)?;
+                format!("rt::generic::segment(&{v}, {}, {})?", n[0], n[1])
+            }
+            ("reverse", [t]) if one_d(t) => format!("rt::generic::reverse(&{})", at(self, 0)?),
+            ("append_array", [a, b]) if one_d(a) && one_d(b) => {
+                format!(
+                    "rt::generic::append_array(&{}, &{})",
+                    at(self, 0)?,
+                    at(self, 1)?
+                )
+            }
+            ("sort_asc" | "sort_desc" | "sort_indices_asc" | "sort_indices_desc", [t])
+                if one_d(t) =>
+            {
+                format!("rt::generic::{name}(&{})", at(self, 0)?)
+            }
+            ("rank", [t, U::Int]) if one_d(t) => {
+                format!(
+                    "rt::generic::rank(&{}, {})?",
+                    at(self, 0)?,
+                    self.expr(&args[1])?
+                )
+            }
+            ("rep_array", [_, rest @ ..])
+                if rest.iter().all(|t| **t == U::Int) && !rest.is_empty() =>
+            {
+                let mut leaf = e.ty.clone();
+                for _ in 0..rest.len() {
+                    if let U::Array(i) = leaf {
+                        leaf = *i;
+                    }
+                }
+                let x = self.expr_as(&args[0], &leaf, &e.ad.clone().fill_for(&leaf))?;
+                let n = ints(self, 1)?;
+                let f = match n.len() {
+                    1 => "rep_array",
+                    2 => "rep_array2",
+                    _ => "rep_array3",
+                };
+                format!("rt::generic::{f}({x}, {})?", n.join(", "))
+            }
+            ("rep_vector" | "rep_row_vector", [_, U::Int])
+            | ("rep_matrix", [_, U::Int, U::Int]) => {
+                let leaf = elem_of_result(&e.ty);
+                let x = self.expr_as(&args[0], &leaf, &e.ad)?;
+                let n = ints(self, 1)?;
+                let f = if name == "rep_matrix" {
+                    "rep_matrix"
+                } else {
+                    "rep_vector"
+                };
+                format!("rt::generic::{f}({x}, {})?", n.join(", "))
+            }
+            ("row" | "col", [t, U::Int]) if mat(t) => {
+                format!(
+                    "rt::generic::{name}(&{}, {})?",
+                    at(self, 0)?,
+                    self.expr(&args[1])?
+                )
+            }
+            ("sub_row" | "sub_col", [t, U::Int, U::Int, U::Int]) if mat(t) => {
+                let m = at(self, 0)?;
+                format!("rt::generic::{name}(&{m}, {})?", ints(self, 1)?.join(", "))
+            }
+            ("block", [t, U::Int, U::Int, U::Int, U::Int]) if mat(t) => {
+                let m = at(self, 0)?;
+                format!("rt::generic::block(&{m}, {})?", ints(self, 1)?.join(", "))
+            }
+            ("diagonal", [t]) if mat(t) => format!("rt::generic::diagonal(&{})", at(self, 0)?),
+            ("to_vector" | "to_row_vector", [t]) if mat(t) => {
+                format!("rt::generic::to_vector(&{})", at(self, 0)?)
+            }
+            ("symmetrize_from_lower_tri", [t]) if mat(t) => {
+                format!("rt::generic::symmetrize_from_lower_tri(&{})?", at(self, 0)?)
+            }
+            ("diag_matrix", [t]) if one_d(t) => {
+                let z = self.zero(&e.ty, &e.ad);
+                format!("rt::generic::diag_matrix(&{}, {z})", at(self, 0)?)
+            }
+            ("get_real" | "get_imag" | "conj", [t]) if !matches!(t, U::Complex) => {
+                let v = at(self, 0)?;
+                let f = format!("|z__| rt::generic::{name}(z__)");
+                match t {
+                    U::ComplexMatrix => format!("({v}).map({f})"),
+                    U::ComplexVector | U::ComplexRowVector => {
+                        format!("({v}).iter().map({f}).collect::<Vec<_>>()")
+                    }
+                    _ => return Ok(None),
+                }
+            }
+            ("to_array_1d", [t])
+                if matches!(t, U::Array(_))
+                    && t.array_dims().0 > 1
+                    && matches!(t.array_dims().1, U::Int | U::Real | U::Complex) =>
+            {
+                let mut c = at(self, 0)?;
+                for _ in 1..t.array_dims().0 {
+                    c = format!("({c}).into_iter().flatten().collect::<Vec<_>>()");
+                }
+                c
+            }
+            _ => return Ok(None),
+        };
+        Ok(Some(code))
     }
 
     fn lib_call_named(
@@ -1025,35 +1370,75 @@ impl Gen {
                 leaf_call(g, &leaves)
             })?
         } else {
-            // Several containers: one-dimensional ones of equal length.
+            // Several containers of the same shape, walked together.
+            let shape = Shape::of(&args[containers[0]].ty);
             for &i in &containers {
-                if !matches!(Shape::of(&args[i].ty), Shape::Vec(_)) {
+                if Shape::of(&args[i].ty) != shape {
                     return Err(unsupported(
                         args[i].span,
                         format!(
-                            "vectorized '{name}' over several multi-dimensional containers is not supported by stanc-rs yet"
+                            "vectorized '{name}' over containers of different shapes is not supported by stanc-rs yet"
                         ),
                     ));
                 }
             }
-            let n = self.fresh("n");
-            let i = self.fresh("i");
-            let out = self.fresh("out");
-            let lens: Vec<String> = containers
-                .iter()
-                .map(|c| format!("{}.len()", leaf_codes[*c]))
-                .collect();
+            let codes: Vec<String> = containers.iter().map(|c| leaf_codes[*c].clone()).collect();
             let mut leaves = leaf_codes.clone();
-            for &c in &containers {
-                leaves[c] = format!("{}[{i}]", leaf_codes[c]);
-            }
-            let call = leaf_call(self, &leaves);
-            format!(
-                "{{ let {n} = rt::stan::common_len({name:?}, &[{}])?; let mut {out} = Vec::with_capacity({n}); for {i} in 0..{n} {{ {out}.push({call}); }} {out} }}",
-                lens.join(", ")
-            )
+            self.zip_shape(name, &codes, &shape, &mut |g, vs| {
+                for (k, &c) in containers.iter().enumerate() {
+                    leaves[c] = vs[k].clone();
+                }
+                leaf_call(g, &leaves)
+            })
         };
         Ok(format!("{{ {} {body} }}", pre.join(" ")))
+    }
+
+    /// Maps `leaf` over the scalars of several containers of the same shape, element by element.
+    fn zip_shape(
+        &mut self,
+        name: &str,
+        codes: &[String],
+        shape: &Shape,
+        leaf: &mut dyn FnMut(&mut Gen, &[String]) -> String,
+    ) -> String {
+        let i = self.fresh("i");
+        let out = self.fresh("out");
+        match shape {
+            Shape::Vec(_) | Shape::Arr(_) => {
+                let n = self.fresh("n");
+                let lens: Vec<String> = codes.iter().map(|c| format!("{c}.len()")).collect();
+                let elems: Vec<String> = codes.iter().map(|c| format!("(&{c}[{i}])")).collect();
+                let inner = match shape {
+                    Shape::Arr(s) => self.zip_shape(name, &elems, s, leaf),
+                    _ => {
+                        let vals: Vec<String> =
+                            elems.iter().map(|e| format!("(*{e}).clone()")).collect();
+                        leaf(self, &vals)
+                    }
+                };
+                format!(
+                    "{{ let {n} = rt::stan::common_len({name:?}, &[{}])?; let mut {out} = Vec::with_capacity({n}); for {i} in 0..{n} {{ {out}.push({inner}); }} {out} }}",
+                    lens.join(", ")
+                )
+            }
+            Shape::Mat(_) => {
+                let rows: Vec<String> = codes.iter().map(|c| format!("{c}.nrows()")).collect();
+                let cols: Vec<String> = codes.iter().map(|c| format!("{c}.ncols()")).collect();
+                let vals: Vec<String> = codes
+                    .iter()
+                    .map(|c| format!("{c}.as_slice()[{i}].clone()"))
+                    .collect();
+                let inner = leaf(self, &vals);
+                let (r, c) = (self.fresh("r"), self.fresh("c"));
+                format!(
+                    "{{ let {r} = rt::stan::common_len({name:?}, &[{}])?; let {c} = rt::stan::common_len({name:?}, &[{}])?; let mut {out} = Vec::with_capacity({r} * {c}); for {i} in 0..{r} * {c} {{ {out}.push({inner}); }} sm::Matrix::from_column_major({r}, {c}, {out}) }}",
+                    rows.join(", "),
+                    cols.join(", ")
+                )
+            }
+            _ => leaf(self, codes),
+        }
     }
 
     /// Maps `leaf` over every scalar of `code` (a container of shape `shape`).
@@ -1192,7 +1577,7 @@ fn int_to_real(t: &U) -> U {
 }
 
 /// The scalar type at the leaves of a container type.
-fn leaf_scalar(t: &U) -> U {
+pub(crate) fn leaf_scalar(t: &U) -> U {
     match t {
         U::Array(i) => leaf_scalar(i),
         U::Vector | U::RowVector | U::Matrix => U::Real,

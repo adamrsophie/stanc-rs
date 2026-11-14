@@ -74,6 +74,9 @@ pub struct Gen {
     pub(crate) udfs: HashMap<String, Vec<UdfDef>>,
     /// Return type of the function being generated.
     pub(crate) ret: Option<U>,
+    /// Set while lowering an operator written as a function call, so that the operator's own
+    /// fallback to a library call does not loop.
+    pub(crate) in_operator: Option<Span>,
 }
 
 impl Gen {
@@ -84,6 +87,7 @@ impl Gen {
             fields: HashSet::new(),
             tmp: 0,
             udfs: HashMap::new(),
+            in_operator: None,
             ret: None,
         }
     }

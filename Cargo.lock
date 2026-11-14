@@ -202,7 +202,7 @@ version = "0.1.0"
 [[package]]
 name = "stanmath-rs"
 version = "0.1.0"
-source = "git+https://github.com/adamrsophie/stanmath-rs?rev=ee054fcf3407c6f6341d8efcc4fe0ff23742d224#ee054fcf3407c6f6341d8efcc4fe0ff23742d224"
+source = "git+https://github.com/adamrsophie/stanmath-rs?rev=affeffe936faad8156fa4ad539cad1bfb07ba020#affeffe936faad8156fa4ad539cad1bfb07ba020"
 dependencies = [
  "stanmath-rs-autodiff",
  "stanmath-rs-core",
@@ -215,7 +215,7 @@ dependencies = [
 [[package]]
 name = "stanmath-rs-autodiff"
 version = "0.1.0"
-source = "git+https://github.com/adamrsophie/stanmath-rs?rev=ee054fcf3407c6f6341d8efcc4fe0ff23742d224#ee054fcf3407c6f6341d8efcc4fe0ff23742d224"
+source = "git+https://github.com/adamrsophie/stanmath-rs?rev=affeffe936faad8156fa4ad539cad1bfb07ba020#affeffe936faad8156fa4ad539cad1bfb07ba020"
 dependencies = [
  "stanmath-rs-core",
 ]
@@ -223,7 +223,7 @@ dependencies = [
 [[package]]
 name = "stanmath-rs-core"
 version = "0.1.0"
-source = "git+https://github.com/adamrsophie/stanmath-rs?rev=ee054fcf3407c6f6341d8efcc4fe0ff23742d224#ee054fcf3407c6f6341d8efcc4fe0ff23742d224"
+source = "git+https://github.com/adamrsophie/stanmath-rs?rev=affeffe936faad8156fa4ad539cad1bfb07ba020#affeffe936faad8156fa4ad539cad1bfb07ba020"
 dependencies = [
  "libm",
 ]
@@ -231,7 +231,7 @@ dependencies = [
 [[package]]
 name = "stanmath-rs-distributions"
 version = "0.1.0"
-source = "git+https://github.com/adamrsophie/stanmath-rs?rev=ee054fcf3407c6f6341d8efcc4fe0ff23742d224#ee054fcf3407c6f6341d8efcc4fe0ff23742d224"
+source = "git+https://github.com/adamrsophie/stanmath-rs?rev=affeffe936faad8156fa4ad539cad1bfb07ba020#affeffe936faad8156fa4ad539cad1bfb07ba020"
 dependencies = [
  "rand",
  "rand_distr",
@@ -243,7 +243,7 @@ dependencies = [
 [[package]]
 name = "stanmath-rs-linalg"
 version = "0.1.0"
-source = "git+https://github.com/adamrsophie/stanmath-rs?rev=ee054fcf3407c6f6341d8efcc4fe0ff23742d224#ee054fcf3407c6f6341d8efcc4fe0ff23742d224"
+source = "git+https://github.com/adamrsophie/stanmath-rs?rev=affeffe936faad8156fa4ad539cad1bfb07ba020#affeffe936faad8156fa4ad539cad1bfb07ba020"
 dependencies = [
  "stanmath-rs-autodiff",
  "stanmath-rs-core",
@@ -252,7 +252,7 @@ dependencies = [
 [[package]]
 name = "stanmath-rs-solvers"
 version = "0.1.0"
-source = "git+https://github.com/adamrsophie/stanmath-rs?rev=ee054fcf3407c6f6341d8efcc4fe0ff23742d224#ee054fcf3407c6f6341d8efcc4fe0ff23742d224"
+source = "git+https://github.com/adamrsophie/stanmath-rs?rev=affeffe936faad8156fa4ad539cad1bfb07ba020#affeffe936faad8156fa4ad539cad1bfb07ba020"
 dependencies = [
  "rand",
  "rand_distr",
@@ -263,7 +263,7 @@ dependencies = [
 [[package]]
 name = "stanmath-rs-transforms"
 version = "0.1.0"
-source = "git+https://github.com/adamrsophie/stanmath-rs?rev=ee054fcf3407c6f6341d8efcc4fe0ff23742d224#ee054fcf3407c6f6341d8efcc4fe0ff23742d224"
+source = "git+https://github.com/adamrsophie/stanmath-rs?rev=affeffe936faad8156fa4ad539cad1bfb07ba020#affeffe936faad8156fa4ad539cad1bfb07ba020"
 dependencies = [
  "stanmath-rs-autodiff",
  "stanmath-rs-core",

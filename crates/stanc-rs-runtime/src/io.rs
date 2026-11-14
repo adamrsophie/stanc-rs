@@ -61,6 +61,16 @@ impl<'a, T: Real> Reader<'a, T> {
         Ok(Complex::new(s[0], s[1]))
     }
 
+    /// `n` complex numbers, each as its real then imaginary part.
+    pub fn complex_vec(&mut self, n: usize) -> Result<Vec<Complex<T>>> {
+        (0..n).map(|_| self.complex()).collect()
+    }
+
+    /// An `r` by `c` complex matrix in column-major order.
+    pub fn complex_matrix(&mut self, r: usize, c: usize) -> Result<Matrix<Complex<T>>> {
+        Ok(Matrix::from_column_major(r, c, self.complex_vec(r * c)?))
+    }
+
     /// Number of values read so far.
     pub fn position(&self) -> usize {
         self.pos
