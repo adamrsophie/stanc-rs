@@ -37,15 +37,27 @@ There is no separate optimizing IR yet. The typed AST is the intermediate repres
 
 * `program.rs` lays out the module: user functions, the `Model` struct, the constructor (data
   reading, transformed data, constraint checks, output shapes) and the `GeneratedModel` methods.
-* `stmt.rs` lowers statements: assignment through `rt::index`, `~` statements (including
-  truncation through `_lcdf`/`_lccdf`), loops, `print`, `reject`, `fatal_error`.
+* `stmt.rs` lowers statements: assignment through `rt::index` (one index at a time for any mix
+  of single and multiple indexes), `~` statements (including truncation through `_lcdf` and
+  `_lccdf`, element by element for container outcomes), loops, `print`, `reject`,
+  `fatal_error`. Each top-level statement of a program block runs in an immediately called
+  closure, because rustc's borrow checking time grows faster than linearly with the size of a
+  function body.
 * `expr.rs` lowers expressions: conversions between Stan types, operators (`rt::ops` for
   container arithmetic), indexing, and calls.
+* `solvers.rs` lowers the higher-order functions (ODE, DAE, adjoint ODE, algebraic solvers,
+  1D integrators, `reduce_sum`, `map_rect`): each function argument becomes a local struct that
+  implements the stanmath-rs system trait, with the autodiff arguments flattened into one
+  vector and rebuilt inside the trait method. `laplace.rs` does the same for the Laplace
+  approximation functions.
 * `library.rs` matches a Stan library call to a stanmath-rs function. The table
   `data/stanmath_rs_signatures.txt` lists every stanmath-rs free function by Stan name with its
   Rust signature. It is generated from rustdoc JSON by `tools/extract_stanmath_signatures.py`.
   Calls of scalar functions on containers are vectorized elementwise when stanmath-rs has no
-  container overload.
+  container overload. Functions stanmath-rs does not have for some element type (slicing,
+  sorting, and reshaping of integer, complex, or nested containers; complex linear algebra)
+  go to `rt::generic`, and the `_constrain`, `_jacobian`, and `_unconstrain` functions to
+  `rt::transform`.
 
 ### Scalar types
 

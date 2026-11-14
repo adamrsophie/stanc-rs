@@ -26,7 +26,7 @@ Every `GeneratedModel` also implements the object-safe `rt::Model` trait:
 | `log_density_gradient(theta, opts)` | Value and gradient (reverse mode) |
 | `write_array(theta, include_tp, include_gq, rng)` | Constrained parameters, then transformed parameters and generated quantities |
 | `unconstrain(values)` | Unconstrained vector from constrained values given as JSON |
-| `param_names(include_tp, include_gq)` | Flattened names such as `beta.1`, `Sigma.2.1`, `z.real` |
+| `param_names(include_tp, include_gq)` | Flattened names such as `beta.1`, `Sigma.2.1`, `z.real`, and for tuples `p:1`, `q.2:2.1` |
 | `variables()` | Shape of each output variable |
 
 `DensityOptions { jacobian, propto }`:
@@ -46,14 +46,17 @@ problem is an `ErrorKind::Data` error naming the variable.
 ## Unconstrained parameter order
 
 Parameters are read in declaration order. Within a parameter, array elements come in row-major
-order, vectors are contiguous, and matrices are column-major. Each constrained type uses the
+order, vectors are contiguous, and matrices are column-major. Tuple components are read in
+order, and arrays of tuples element by element. Each constrained type uses the
 number of free values of its transform (for example `K - 1` for `simplex[K]` and
 `K (K - 1) / 2` for `cholesky_factor_corr[K]`). This matches stanc3's deserializer.
 
 ## Output order
 
 `write_array` flattens each variable in CmdStan's order: column-major over all dimensions (the
-first index varies fastest), with a complex value written as its real then imaginary part.
+first index varies fastest), with a complex value written as its real then imaginary part. A
+tuple is written component by component, and an array of tuples element by element. The
+`VarInfo` of a tuple variable lists its components in `slots`.
 
 ## Errors
 
