@@ -705,3 +705,17 @@ fn library_functions() {
     }
     assert_close(at("a1.2.imag"), 0.4, 0.0);
 }
+
+// Data assigned to transformed parameters and model locals, which are autodiff values.
+#[test]
+fn data_assigned_to_parameter_variables() {
+    let m = fx::data_into_params::Model::new(&data(r#"{"a": 0.5, "v": [1.0, -2.0]}"#), 0).unwrap();
+    let mu = 0.3;
+    let expected = normal_lpdf(1.0 + mu, 0.5, 1.0)
+        + normal_lpdf(-2.0, 0.5, 1.0)
+        + normal_lpdf(1.0, 0.0, 1.0)
+        + normal_lpdf(mu, 0.0, 1.0);
+    let (lp, g) = m.log_density_gradient(&[mu], FULL).unwrap();
+    assert_close(lp, expected, 1e-14);
+    assert_close(g[0], -(1.0 + mu - 0.5) - mu, 1e-14);
+}

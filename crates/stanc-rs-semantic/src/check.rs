@@ -2518,10 +2518,6 @@ impl Checker {
                         format!("Ill-typed arguments supplied to assignment operator =: lhs has type {} and rhs has type {}.", tl.ty, tr.ty),
                     )
                 })?;
-                let tr = TExpr {
-                    ad: tl.ad.clone(),
-                    ..tr
-                };
                 promote(tr, &p)
             }
             AssignOp::Compound(bop) => {
@@ -2886,10 +2882,6 @@ impl Checker {
                     match check_same_type(0, &ut, &tr.ty) {
                         Ok(_) => {
                             let p = type_promotion(&lad, &ut, &tr.ad, &tr.ty);
-                            let tr = TExpr {
-                                ad: lad.clone(),
-                                ..tr
-                            };
                             Some(promote(tr, &p))
                         }
                         Err(_) => {
