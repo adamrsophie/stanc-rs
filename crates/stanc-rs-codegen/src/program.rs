@@ -697,6 +697,14 @@ impl Gen {
             TSizedType::ComplexMatrix(r, c) => {
                 format!("in__.complex_matrix({}, {})?", self.size(r)?, self.size(c)?)
             }
+            // Tuple components are read in order, each with its own constraint.
+            TSizedType::Tuple(ts) => {
+                let mut parts = Vec::new();
+                for (i, t) in ts.iter().enumerate() {
+                    parts.push(self.read_sized(t, &component(trans, i))?);
+                }
+                format!("({},)", parts.join(", "))
+            }
             _ => {
                 return Err(unsupported(
                     Default::default(),
@@ -706,10 +714,10 @@ impl Gen {
         })
     }
 
-    /// Emits `let mut name = <constrained value>;` for one parameter.
-    fn read_param(&mut self, d: &Decl) -> R<()> {
-        let (dims, inner) = parts(&d.ty);
-        let uty = d.ty.unsized_type();
+    /// The constrained value of a parameter of type `ty` read from `in__`; array sizes are
+    /// bound to locals first.
+    fn read_sized(&mut self, ty: &TSizedType, trans: &TTransformation) -> R<String> {
+        let (dims, inner) = parts(ty);
         let inner = inner.clone();
         let mut sizes = Vec::new();
         for e in dims {
@@ -718,10 +726,17 @@ impl Gen {
             self.line(&format!("let {t} = {c};"));
             sizes.push(t);
         }
-        let mut code = self.read_inner(&inner, &d.trans)?;
+        let mut code = self.read_inner(&inner, trans)?;
         for n in sizes.iter().rev() {
             code = format!("rt::stan::build({n}, || Ok({code}))?");
         }
+        Ok(code)
+    }
+
+    /// Emits `let mut name = <constrained value>;` for one parameter.
+    fn read_param(&mut self, d: &Decl) -> R<()> {
+        let uty = d.ty.unsized_type();
+        let code = self.read_sized(&d.ty, &d.trans)?;
         self.line(&format!(
             "let mut {}: {} = {code};",
             mangle(&d.name),
@@ -732,8 +747,12 @@ impl Gen {
 
     /// The number of unconstrained values of a parameter (a `usize` expression).
     fn unconstrained_size(&mut self, d: &Decl) -> R<String> {
+        self.unconstrained_size_of(&d.ty, &d.trans)
+    }
+
+    fn unconstrained_size_of(&mut self, ty: &TSizedType, trans: &TTransformation) -> R<String> {
         use TTransformation as Tr;
-        let (dims, inner) = parts(&d.ty);
+        let (dims, inner) = parts(ty);
         let mut factors = Vec::new();
         for e in dims {
             factors.push(self.size(e)?);
@@ -749,7 +768,7 @@ impl Gen {
             }
             TSizedType::Vector(n) | TSizedType::RowVector(n) => {
                 let n = self.size(n)?;
-                match d.trans {
+                match trans {
                     Tr::Simplex | Tr::SumToZero => format!("({n}).saturating_sub(1)"),
                     _ => n,
                 }
@@ -757,7 +776,7 @@ impl Gen {
             TSizedType::Matrix(r, c) => {
                 let r = self.size(r)?;
                 let c = self.size(c)?;
-                match d.trans {
+                match trans {
                     Tr::CholeskyCorr | Tr::Correlation => {
                         format!("{{ let k = {r}; k * k.saturating_sub(1) / 2 }}")
                     }
@@ -772,6 +791,13 @@ impl Gen {
                     Tr::SumToZero => format!("({r}).saturating_sub(1) * ({c}).saturating_sub(1)"),
                     _ => format!("{r} * {c}"),
                 }
+            }
+            TSizedType::Tuple(ts) => {
+                let mut sum = Vec::new();
+                for (i, t) in ts.iter().enumerate() {
+                    sum.push(self.unconstrained_size_of(t, &component(trans, i))?);
+                }
+                format!("({})", sum.join(" + "))
             }
             _ => {
                 return Err(unsupported(
@@ -834,8 +860,6 @@ impl Gen {
 
     /// Emits the unconstraining of one parameter read from `values__`.
     fn free_param(&mut self, d: &Decl) -> R<()> {
-        use TTransformation as Tr;
-        let (dims, inner) = parts(&d.ty);
         let uty = d.ty.unsized_type();
         let read = self.read_json(&d.ty, &d.name, &format!("values__.get({:?})?", d.name))?;
         let v = self.fresh("p");
@@ -843,9 +867,22 @@ impl Gen {
             "let {v}: {} = {read};",
             rust_type(&uty, &Ad::DataOnly)
         ));
+        self.free_value(&v, &d.ty, &d.trans)
+    }
+
+    /// Emits the unconstraining of the value `v` of parameter type `ty`.
+    fn free_value(&mut self, v: &str, ty: &TSizedType, trans: &TTransformation) -> R<()> {
+        use TTransformation as Tr;
+        let (dims, inner) = parts(ty);
         let inner = inner.clone();
-        let trans = d.trans.clone();
-        self.for_leaves(&v, dims.len(), &mut |g, leaf| {
+        let trans = trans.clone();
+        self.for_leaves(v, dims.len(), &mut |g, leaf| {
+            if let TSizedType::Tuple(ts) = &inner {
+                for (i, t) in ts.iter().enumerate() {
+                    g.free_value(&format!("{leaf}.{i}"), t, &component(&trans, i))?;
+                }
+                return Ok(());
+            }
             let code = match (&inner, &trans) {
                 (TSizedType::Real, Tr::Identity) => format!("w__.push(*{leaf});"),
                 (TSizedType::Real, Tr::Lower(l)) => format!("w__.push(rt::io::free::lb(*{leaf}, {})?);", g.scalar_bound(l)?),
@@ -919,6 +956,14 @@ impl Gen {
             g.line(&code);
             Ok(())
         })
+    }
+}
+
+/// The transformation of tuple component `i` under `trans`.
+fn component(trans: &TTransformation, i: usize) -> TTransformation {
+    match trans {
+        TTransformation::Tuple(ts) => ts.get(i).cloned().unwrap_or(TTransformation::Identity),
+        _ => TTransformation::Identity,
     }
 }
 

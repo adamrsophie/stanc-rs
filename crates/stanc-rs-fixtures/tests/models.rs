@@ -567,3 +567,45 @@ fn laplace_approximation() {
     // The built in Poisson likelihood agrees with the same likelihood written as a function.
     assert_close(at("builtin"), at("user"), 1e-8);
 }
+
+// Tuple parameters, alone and in arrays, with constrained components.
+#[test]
+fn tuple_parameters() {
+    let m = fx::tuple_params::Model::new(&data("{}"), 0).unwrap();
+    assert_eq!(m.num_unconstrained(), 8);
+    let theta: [f64; 8] = [0.4, -0.3, 0.2, 1.1, -0.5, -0.7, 0.3, 0.9];
+    let inv_logit = |x: f64| 1.0 / (1.0 + (-x).exp());
+    let (a, b) = (theta[0], theta[1]);
+    let p2 = b.exp();
+    let mut expected = normal_lpdf(a, 0.0, 1.0) - p2 + b;
+    let mut q1 = Vec::new();
+    for (c, v) in [(theta[2], &theta[3..5]), (theta[5], &theta[6..8])] {
+        let u = inv_logit(c);
+        let x = -1.0 + 2.0 * u;
+        q1.push(x);
+        expected += normal_lpdf(x, 0.0, 1.0) + (2.0 * u * (1.0 - u)).ln();
+        expected += normal_lpdf(v[0], 0.0, 1.0) + normal_lpdf(v[1], 0.0, 1.0);
+    }
+    let (lp, _) = m.log_density_gradient(&theta, FULL).unwrap();
+    assert_close(lp, expected, 1e-13);
+    check_gradient(&m, &theta, FULL);
+    assert_eq!(
+        m.param_names(true, true),
+        [
+            "p:1", "p:2", "q.1:1", "q.1:2.1", "q.1:2.2", "q.2:1", "q.2:2.1", "q.2:2.2"
+        ]
+    );
+    let out = m.write_array(&theta, true, true, &mut rng()).unwrap();
+    let want = [a, p2, q1[0], theta[3], theta[4], q1[1], theta[6], theta[7]];
+    for (o, w) in out.iter().zip(want) {
+        assert_close(*o, w, 1e-14);
+    }
+    let json = format!(
+        r#"{{"p": {{"1": {a}, "2": {p2:e}}}, "q": [{{"1": {:e}, "2": [{}, {}]}}, {{"1": {:e}, "2": [{}, {}]}}]}}"#,
+        q1[0], theta[3], theta[4], q1[1], theta[6], theta[7]
+    );
+    let back = m.unconstrain(&data(&json)).unwrap();
+    for (x, t) in back.iter().zip(theta) {
+        assert_close(*x, t, 1e-12);
+    }
+}
