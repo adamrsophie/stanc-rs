@@ -1176,6 +1176,90 @@ impl Gen {
                 let x = real_of(self, 1)?;
                 format!("{{ let mut v__ = ({v}).clone(); v__.push({x}); v__ }}")
             }
+            (
+                "mdivide_right",
+                [
+                    a @ (U::RowVector | U::ComplexRowVector | U::Matrix | U::ComplexMatrix),
+                    b @ (U::Matrix | U::ComplexMatrix),
+                ],
+            ) if [a, b]
+                .iter()
+                .any(|t| matches!(t, U::ComplexRowVector | U::ComplexMatrix)) =>
+            {
+                let row = matches!(a, U::RowVector | U::ComplexRowVector);
+                let lt = if row {
+                    U::ComplexRowVector
+                } else {
+                    U::ComplexMatrix
+                };
+                let x = self.expr_as(&args[0], &lt, &e.ad)?;
+                let m = self.expr_as(&args[1], &U::ComplexMatrix, &e.ad)?;
+                let f = if row {
+                    "cmdivide_right_vec"
+                } else {
+                    "cmdivide_right_mat"
+                };
+                format!("rt::generic::{f}(&{x}, &{m})?")
+            }
+            ("append_row" | "append_col", [a, b])
+                if [a, b].iter().any(|t| {
+                    matches!(t, U::ComplexVector | U::ComplexRowVector | U::ComplexMatrix)
+                }) =>
+            {
+                let cplx = |t: &U| match t {
+                    U::Vector => U::ComplexVector,
+                    U::RowVector => U::ComplexRowVector,
+                    U::Matrix => U::ComplexMatrix,
+                    U::Int | U::Real => U::Complex,
+                    t => t.clone(),
+                };
+                let (ta, tb) = (cplx(a), cplx(b));
+                let x = self.expr_as(&args[0], &ta, &e.ad)?;
+                let y = self.expr_as(&args[1], &tb, &e.ad)?;
+                let rows = name == "append_row";
+                let along = if rows {
+                    U::ComplexVector
+                } else {
+                    U::ComplexRowVector
+                };
+                // Two vectors along the appended direction, or a scalar and one, concatenate.
+                if [&ta, &tb].iter().all(|t| **t == along || **t == U::Complex) {
+                    let wrap = |c: String, t: &U| {
+                        if *t == U::Complex {
+                            format!("vec![{c}]")
+                        } else {
+                            format!("({c}).clone()")
+                        }
+                    };
+                    format!(
+                        "rt::generic::append_array(&{}, &{})",
+                        wrap(x, &ta),
+                        wrap(y, &tb)
+                    )
+                } else {
+                    let mat = |c: String, t: &U| match t {
+                        U::ComplexMatrix => format!("({c})"),
+                        U::ComplexRowVector => format!("rt::generic::as_row(&{c})"),
+                        _ => format!("rt::generic::as_col(&{c})"),
+                    };
+                    let f = if rows { "stack_rows" } else { "stack_cols" };
+                    format!("rt::generic::{f}(&{}, &{})?", mat(x, &ta), mat(y, &tb))
+                }
+            }
+            ("sum", [t]) if leaf_scalar(t) == U::Complex => {
+                let v = at(self, 0)?;
+                let z = self.zero(&U::Complex, &e.ad);
+                let it = match t {
+                    U::ComplexMatrix => format!("({v}).as_slice().iter()"),
+                    _ => format!("({v}).iter()"),
+                };
+                format!("{it}.cloned().fold({z}, |a__, b__| a__ + b__)")
+            }
+            ("abs", [t @ U::Array(_)]) if leaf_scalar(t) == U::Complex => {
+                let v = at(self, 0)?;
+                let shape = Shape::of(t);
+                self.map_shape(&v, &shape, &mut |_, x| format!("rt::generic::cabs(&{x})"))?
+            }
             ("abs", [U::ComplexVector | U::ComplexRowVector]) => {
                 format!(
                     "({}).iter().map(rt::generic::cabs).collect::<Vec<_>>()",

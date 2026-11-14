@@ -268,3 +268,155 @@ pub fn rep_rows<T: Clone>(v: &[T], m: i64) -> Result<Matrix<T>> {
     let m = usize_of(m)?;
     Ok(Matrix::from_fn(m, v.len(), |_, j| v[j].clone()))
 }
+
+/// `B * inverse(A)` for complex `B` (with `rows` rows, stored column major in `b`) and square
+/// `A`, by Gaussian elimination with partial pivoting on `A` transposed.
+fn cdivide_right<T: Real>(
+    b: &[Complex<T>],
+    rows: usize,
+    a: &Matrix<Complex<T>>,
+) -> Result<Vec<Complex<T>>> {
+    let n = a.nrows();
+    if a.ncols() != n || b.len() != rows * n {
+        return Err(ModelError::new(
+            ErrorKind::Size,
+            "mdivide_right: the matrix must be square with as many columns as the left side",
+        ));
+    }
+    // Solve A^T X^T = B^T: the augmented rows are the rows of A^T.
+    let mut m: Vec<Vec<Complex<T>>> = (0..n)
+        .map(|i| {
+            let mut row: Vec<Complex<T>> = (0..n).map(|j| a[(j, i)]).collect();
+            row.extend((0..rows).map(|r| b[r + i * rows]));
+            row
+        })
+        .collect();
+    for k in 0..n {
+        let p = (k..n)
+            .max_by(|x, y| by(&cabs(&m[*x][k]).value(), &cabs(&m[*y][k]).value()))
+            .unwrap_or(k);
+        if cabs(&m[p][k]).value() == 0.0 {
+            return Err(ModelError::new(
+                ErrorKind::Domain,
+                "mdivide_right: the matrix is singular",
+            ));
+        }
+        m.swap(k, p);
+        let (top, below) = m.split_at_mut(k + 1);
+        let pivot = &top[k];
+        for row in below {
+            let f = row[k] / pivot[k];
+            for (x, p) in row[k..].iter_mut().zip(&pivot[k..]) {
+                *x -= f * *p;
+            }
+        }
+    }
+    let mut x = vec![vec![Complex::new(T::from_f64(0.0), T::from_f64(0.0)); rows]; n];
+    for i in (0..n).rev() {
+        for r in 0..rows {
+            let mut acc = m[i][n + r];
+            for j in i + 1..n {
+                acc -= m[i][j] * x[j][r];
+            }
+            x[i][r] = acc / m[i][i];
+        }
+    }
+    // X^T has rows `rows` and columns `n`; return it column major.
+    Ok((0..n)
+        .flat_map(|j| (0..rows).map(move |r| (j, r)))
+        .map(|(j, r)| x[j][r])
+        .collect())
+}
+
+/// `b * inverse(a)` for a complex row vector `b`.
+pub fn cmdivide_right_vec<T: Real>(
+    b: &[Complex<T>],
+    a: &Matrix<Complex<T>>,
+) -> Result<Vec<Complex<T>>> {
+    cdivide_right(b, 1, a)
+}
+
+/// `b * inverse(a)` for a complex matrix `b`.
+pub fn cmdivide_right_mat<T: Real>(
+    b: &Matrix<Complex<T>>,
+    a: &Matrix<Complex<T>>,
+) -> Result<Matrix<Complex<T>>> {
+    let v = cdivide_right(b.as_slice(), b.nrows(), a)?;
+    Ok(Matrix::from_column_major(b.nrows(), a.ncols(), v))
+}
+
+/// A row vector as a one-row matrix.
+pub fn as_row<T: Clone>(v: &[T]) -> Matrix<T> {
+    Matrix::from_column_major(1, v.len(), v.to_vec())
+}
+
+/// A vector as a one-column matrix.
+pub fn as_col<T: Clone>(v: &[T]) -> Matrix<T> {
+    Matrix::from_column_major(v.len(), 1, v.to_vec())
+}
+
+/// `a` on top of `b`.
+pub fn stack_rows<T: Clone>(a: &Matrix<T>, b: &Matrix<T>) -> Result<Matrix<T>> {
+    if a.ncols() != b.ncols() {
+        return Err(ModelError::new(
+            ErrorKind::Size,
+            format!(
+                "append_row: {} columns and {} columns",
+                a.ncols(),
+                b.ncols()
+            ),
+        ));
+    }
+    let r = a.nrows();
+    Ok(Matrix::from_fn(r + b.nrows(), a.ncols(), |i, j| {
+        if i < r {
+            a[(i, j)].clone()
+        } else {
+            b[(i - r, j)].clone()
+        }
+    }))
+}
+
+/// `a` left of `b`.
+pub fn stack_cols<T: Clone>(a: &Matrix<T>, b: &Matrix<T>) -> Result<Matrix<T>> {
+    if a.nrows() != b.nrows() {
+        return Err(ModelError::new(
+            ErrorKind::Size,
+            format!("append_col: {} rows and {} rows", a.nrows(), b.nrows()),
+        ));
+    }
+    let mut v = a.as_slice().to_vec();
+    v.extend_from_slice(b.as_slice());
+    Ok(Matrix::from_column_major(
+        a.nrows(),
+        a.ncols() + b.ncols(),
+        v,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn complex_divide_right_inverts_multiplication() {
+        let c = |re: f64, im: f64| Complex::new(re, im);
+        let a = Matrix::from_column_major(
+            2,
+            2,
+            vec![c(2.0, 1.0), c(0.5, 0.0), c(-1.0, 0.3), c(1.0, -2.0)],
+        );
+        let x = vec![c(0.7, -0.1), c(1.2, 0.4)];
+        // b = x * a
+        let b: Vec<Complex<f64>> = (0..2)
+            .map(|j| x[0] * a[(0, j)] + x[1] * a[(1, j)])
+            .collect();
+        let got = cmdivide_right_vec(&b, &a).unwrap();
+        for (g, w) in got.iter().zip(&x) {
+            assert!((g.re - w.re).abs() < 1e-14 && (g.im - w.im).abs() < 1e-14);
+        }
+        let bm = Matrix::from_column_major(1, 2, b);
+        let gm = cmdivide_right_mat(&bm, &a).unwrap();
+        assert!((gm[(0, 1)].re - x[1].re).abs() < 1e-14);
+    }
+}

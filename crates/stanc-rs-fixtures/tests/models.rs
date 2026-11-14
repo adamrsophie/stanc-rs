@@ -637,3 +637,56 @@ fn vector_truncation() {
     assert_close(lp, expected, 1e-12);
     check_gradient(&m, &mu, FULL);
 }
+
+// Library functions that stanc-rs implements itself rather than through stanmath-rs.
+#[test]
+fn library_functions() {
+    let m = fx::library::Model::new(&data("{}"), 0).unwrap();
+    let names = m.param_names(true, true);
+    let out = m.write_array(&[], true, true, &mut rng()).unwrap();
+    assert_eq!(out.len(), names.len());
+    let at = |n: &str| out[names.iter().position(|x| x == n).unwrap()];
+    // (x * A) / A recovers x.
+    for (n, v) in [
+        ("d.1.real", 0.7),
+        ("d.1.imag", -0.1),
+        ("d.2.real", 1.2),
+        ("d.2.imag", 0.4),
+    ] {
+        assert_close(at(n), v, 1e-14);
+    }
+    // append_row puts x under A.
+    assert_close(at("ar.1.2.real"), -1.0, 0.0);
+    assert_close(at("ar.3.1.real"), 0.7, 0.0);
+    assert_close(at("ar.3.2.imag"), 0.4, 0.0);
+    assert_close(at("s.real"), 4.0, 0.0);
+    assert_close(at("s.imag"), 1.0, 0.0);
+    assert_close(at("ab.1"), 5.0, 1e-15);
+    assert_close(at("ab.2"), 2.0, 1e-15);
+    assert_close(at("tr.real"), 3.0, 0.0);
+    assert_close(at("tr.imag"), -1.0, 0.0);
+    // i * (2 + i) = -1 + 2i; 2 * (1 - 2i) = 2 - 4i.
+    assert_close(at("pre.1.1.real"), -1.0, 1e-15);
+    assert_close(at("pre.1.1.imag"), 2.0, 1e-15);
+    assert_close(at("pre.2.2.real"), 2.0, 1e-15);
+    assert_close(at("pre.2.2.imag"), -4.0, 1e-15);
+    assert_close(at("ad.1.1.imag"), 2.0, 0.0);
+    assert_close(at("ad.1.2.real"), -1.0, 0.0);
+    for (k, v) in [1.0, 4.0, 9.0].into_iter().enumerate() {
+        assert_close(at(&format!("rds.{}", k + 1)), v, 0.0);
+    }
+    for (k, v) in [0.5, 1.0, 2.0, 3.0].into_iter().enumerate() {
+        assert_close(at(&format!("apr.{}", k + 1)), v, 0.0);
+    }
+    assert_close(at("l10"), std::f64::consts::LN_10, 0.0);
+    // Rows: [5, 0, 6] and [0, 7, 0].
+    let dense = [[5.0, 0.0, 6.0], [0.0, 7.0, 0.0]];
+    for (i, row) in dense.iter().enumerate() {
+        for (j, v) in row.iter().enumerate() {
+            assert_close(at(&format!("dense.{}.{}", i + 1, j + 1)), *v, 0.0);
+        }
+    }
+    assert_close(at("mv.1"), 5.0 + 18.0, 0.0);
+    assert_close(at("mv.2"), 14.0, 0.0);
+    assert_close(at("sq"), 4.0, 0.0);
+}
