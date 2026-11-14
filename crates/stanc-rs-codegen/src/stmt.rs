@@ -4,7 +4,7 @@ use stanc_rs_semantic::typed::{
     FunKind, TExpr, TExprKind, TIndex, TLValue, TLValueKind, TPrintable, TStmt, TStmtKind,
     TTruncation,
 };
-use stanc_rs_semantic::types::Ad;
+use stanc_rs_semantic::types::{Ad, Promotion};
 use stanc_rs_syntax::ast::{AssignOp, UnsizedType as U};
 
 use crate::expr::{is_copy, rust_type};
@@ -290,12 +290,6 @@ impl Gen {
         if matches!(truncation, TTruncation::None) {
             return Ok(());
         }
-        if *kind == FunKind::UserDefined {
-            return Err(unsupported(
-                s.span,
-                "truncation of a user-defined distribution is not supported by stanc-rs yet",
-            ));
-        }
         if !matches!(arg.ty, U::Int | U::Real) {
             return Err(unsupported(
                 s.span,
@@ -345,11 +339,22 @@ impl Gen {
             } else {
                 b
             };
+            // A continuous distribution takes a real bound.
+            let b = if !discrete && b.ty == U::Int {
+                TExpr {
+                    kind: TExprKind::Promotion(Box::new(b.clone()), Promotion::IntToReal),
+                    ty: U::Real,
+                    ..b
+                }
+            } else {
+                b
+            };
             let mut cargs = vec![b];
             cargs.extend(args.iter().cloned());
             let e = TExpr {
+                // A user-defined distribution brings its own `_lcdf` and `_lccdf`.
                 kind: TExprKind::FunApp {
-                    kind: FunKind::StanLib,
+                    kind: kind.clone(),
                     name: fname,
                     args: cargs,
                     cond: true,

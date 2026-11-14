@@ -348,12 +348,18 @@ fn correlation_cholesky() {
 
 #[test]
 fn user_defined_functions() {
-    let m = fx::udf::Model::new(&data(r#"{"y": 1.3}"#), 0).unwrap();
+    let m = fx::udf::Model::new(&data(r#"{"y": 1.3, "z": 0.5}"#), 0).unwrap();
     for mu in [-2.0, 0.0, 0.9] {
-        let expected = -0.5 * mu * mu + normal_lpdf(1.3, mu, 2.0);
+        // `z ~ my_normal(mu, 2) T[0, ]` subtracts the user's `my_normal_lccdf(0 | mu, 2)`.
+        let expected =
+            -0.5 * mu * mu + normal_lpdf(1.3, mu, 2.0) + normal_lpdf(0.5, mu, 2.0) + 0.1 * mu * mu;
         let (lp, g) = m.log_density_gradient(&[mu], FULL).unwrap();
         assert_close(lp, expected, 1e-14);
-        assert_close(g[0], -mu + (1.3 - mu) / 4.0, 1e-14);
+        assert_close(
+            g[0],
+            -mu + (1.3 - mu) / 4.0 + (0.5 - mu) / 4.0 + 0.2 * mu,
+            1e-14,
+        );
         let out = m.write_array(&[mu], true, true, &mut rng()).unwrap();
         assert_eq!(
             out,
