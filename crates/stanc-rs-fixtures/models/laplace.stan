@@ -25,4 +25,5 @@ generated quantities {
   vector[2] draw = laplace_latent_rng(gaussian, (sigma, y), 1, kernel, (2, alpha));
   real builtin = laplace_marginal_poisson_log_lpmf(c | {1, 2}, rep_vector(0, 2), 1, kernel, (2, alpha));
   real user = laplace_marginal(counts, (c, 1.0), 1, kernel, (2, alpha));
+  vector[2] pdraw = laplace_latent_poisson_log_rng(c, {1, 2}, rep_vector(0, 2), 1, kernel, (2, alpha));
 }

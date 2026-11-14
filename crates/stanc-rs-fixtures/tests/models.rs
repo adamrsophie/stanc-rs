@@ -562,6 +562,7 @@ fn laplace_approximation() {
         assert_close(at(&format!("fit:1.{}", i + 1)), w * y, 1e-8);
         assert_close(at(&format!("fit:2.{}.{}", i + 1, i + 1)), chol, 1e-8);
         assert!(at(&format!("draw.{}", i + 1)).is_finite());
+        assert!(at(&format!("pdraw.{}", i + 1)).is_finite());
     }
     assert_close(at("fit:2.2.1"), 0.0, 1e-12);
     // The built in Poisson likelihood agrees with the same likelihood written as a function.

@@ -66,10 +66,13 @@ impl Gen {
         let builtin = ["poisson_log", "neg_binomial_2_log", "bernoulli_logit"]
             .into_iter()
             .find(|l| {
-                name.strip_prefix("laplace_marginal_")
-                    .map(|r| r.strip_prefix("tol_").unwrap_or(r))
-                    .and_then(|r| r.strip_prefix(l))
-                    .is_some_and(|r| r == "_lpmf" || r == "_lupmf")
+                let after = |prefix: &str| {
+                    name.strip_prefix(prefix)
+                        .map(|r| r.strip_prefix("tol_").unwrap_or(r))
+                        .and_then(|r| r.strip_prefix(l))
+                };
+                after("laplace_marginal_").is_some_and(|r| r == "_lpmf" || r == "_lupmf")
+                    || after("laplace_latent_") == Some("_rng")
             });
         if !user && builtin.is_none() {
             return Ok(None);
@@ -144,11 +147,15 @@ impl Gen {
                 // stanmath-rs has no `_lupmf` form; the full density differs by a constant.
                 f = f.replace("_lupmf", "_lpmf");
             }
-            let o = if tol {
+            let mut o = if tol {
                 format!(", &{opts}")
             } else {
                 String::new()
             };
+            // The latent draws run on data (generated quantities) and take the generator.
+            if name.ends_with("_rng") {
+                o.push_str(", &mut *rng__");
+            }
             format!(
                 "sm::{f}(&{y}, &{idx}, {}, &{}, &phi__{o})",
                 rest.join(", "),
