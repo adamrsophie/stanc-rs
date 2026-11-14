@@ -720,7 +720,10 @@ impl Gen {
         }
         match suffix {
             FnSuffix::Rng => parts.push("&mut *rng__".into()),
-            FnSuffix::Lp => parts.push("&mut *target__".into()),
+            FnSuffix::Lp => {
+                parts.push("&mut *target__".into());
+                parts.push("propto__".into());
+            }
             FnSuffix::Jacobian => {
                 parts.push("&mut *target__".into());
                 parts.push("jacobian__".into());
@@ -1030,7 +1033,7 @@ impl Gen {
                 .map(|a| (Shape::of(&a.ty), a.ad.has_autodiff()))
                 .collect()
         };
-        if e.is_some()
+        if e.is_some_and(|e| leaf_scalar(&e.ty) != U::Int)
             && args
                 .iter()
                 .any(|a| matches!(a.ty, U::Array(_)) && leaf_scalar(&a.ty) == U::Int)
@@ -1078,8 +1081,9 @@ impl Gen {
                 .iter()
                 .map(|a| (Shape::of(&a.ty), a.ad.has_autodiff()))
                 .collect();
-            // `rep_array` of a container is a plain copy, which rt::generic does for any type.
-            if (name == "rep_array"
+            // `rep_array` of a container is a plain copy, and `append_array` must lift a data operand
+            // next to an autodiff one; rt::generic does both for any type.
+            if (matches!(name, "rep_array" | "append_array")
                 || library::resolve(name, &shapes, result_ad.has_autodiff()).is_none())
                 && let Some(code) = self.generic_call(e, name, &args)?
             {
@@ -1762,17 +1766,9 @@ impl Gen {
                 }
             }
             let codes: Vec<String> = containers.iter().map(|c| leaf_codes[*c].clone()).collect();
-            // With a matrix among them, two-dimensional arrays are walked like matrices.
-            let mat = containers
-                .iter()
-                .find(|c| matches!(Shape::of(&args[**c].ty), Shape::Mat(_)));
-            let shape = mat.map_or(shape, |c| Shape::of(&args[*c].ty));
-            let arr2: Vec<bool> = containers
-                .iter()
-                .map(|c| mat.is_some() && !matches!(Shape::of(&args[*c].ty), Shape::Mat(_)))
-                .collect();
+            let shapes: Vec<Shape> = containers.iter().map(|c| Shape::of(&args[*c].ty)).collect();
             let mut leaves = leaf_codes.clone();
-            self.zip_shape(name, &codes, &shape, &arr2, &mut |g, vs| {
+            self.zip_shape(name, &codes, &shapes, &mut |g, vs| {
                 for (k, &c) in containers.iter().enumerate() {
                     leaves[c] = vs[k].clone();
                 }
@@ -1787,24 +1783,45 @@ impl Gen {
         &mut self,
         name: &str,
         codes: &[String],
-        shape: &Shape,
-        arr2: &[bool],
+        shapes: &[Shape],
         leaf: &mut dyn FnMut(&mut Gen, &[String]) -> String,
     ) -> String {
         let i = self.fresh("i");
         let out = self.fresh("out");
-        match shape {
-            Shape::Vec(_) | Shape::Arr(_) => {
+        // A matrix among the operands makes this level a matrix walk, with two-dimensional
+        // arrays (`arr2`) walked like matrices.
+        let arr2: Vec<bool> = shapes.iter().map(|s| !matches!(s, Shape::Mat(_))).collect();
+        let level = if shapes.iter().any(|s| matches!(s, Shape::Mat(_))) {
+            Shape::Mat(Box::new(Shape::Real))
+        } else if shapes
+            .iter()
+            .any(|s| matches!(s, Shape::Vec(_) | Shape::Arr(_)))
+        {
+            Shape::Vec(Box::new(Shape::Real))
+        } else {
+            Shape::Real
+        };
+        match &level {
+            Shape::Vec(_) => {
                 let n = self.fresh("n");
                 let lens: Vec<String> = codes.iter().map(|c| format!("{c}.len()")).collect();
                 let elems: Vec<String> = codes.iter().map(|c| format!("(&{c}[{i}])")).collect();
-                let inner = match shape {
-                    Shape::Arr(s) => self.zip_shape(name, &elems, s, arr2, leaf),
-                    _ => {
-                        let vals: Vec<String> =
-                            elems.iter().map(|e| format!("(*{e}).clone()")).collect();
-                        leaf(self, &vals)
-                    }
+                let inner_shapes: Vec<Shape> = shapes
+                    .iter()
+                    .map(|s| match s {
+                        Shape::Arr(s) => (**s).clone(),
+                        _ => Shape::Real,
+                    })
+                    .collect();
+                let inner = if inner_shapes
+                    .iter()
+                    .any(|s| matches!(s, Shape::Vec(_) | Shape::Arr(_) | Shape::Mat(_)))
+                {
+                    self.zip_shape(name, &elems, &inner_shapes, leaf)
+                } else {
+                    let vals: Vec<String> =
+                        elems.iter().map(|e| format!("(*{e}).clone()")).collect();
+                    leaf(self, &vals)
                 };
                 format!(
                     "{{ let {n} = rt::stan::common_len({name:?}, &[{}])?; let mut {out} = Vec::with_capacity({n}); for {i} in 0..{n} {{ {out}.push({inner}); }} {out} }}",

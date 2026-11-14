@@ -135,12 +135,21 @@ impl Gen {
         };
         let data_real =
             |g: &mut Gen, a: &TExpr| -> R<String> { g.expr_as(a, &U::Real, &Ad::DataOnly) };
+        // Older signatures take the step limit as a real, which Stan truncates.
+        let steps = |g: &mut Gen, m: &TExpr| -> R<String> {
+            let c = g.expr(m)?;
+            Ok(if m.ty == U::Real {
+                format!("(({c}) as i64)")
+            } else {
+                c
+            })
+        };
         let ode_opts = |g: &mut Gen, r: &TExpr, a: &TExpr, m: &TExpr| -> R<String> {
             Ok(format!(
                 "sm::OdeOptions {{ relative_tolerance: {}, absolute_tolerance: {}, max_num_steps: rt::stan::usize_of({})? }}",
                 data_real(g, r)?,
                 data_real(g, a)?,
-                g.expr(m)?
+                steps(g, m)?
             ))
         };
         let sys_opts = |g: &mut Gen, r: &TExpr, f: &TExpr, m: &TExpr| -> R<String> {
@@ -148,7 +157,7 @@ impl Gen {
                 "sm::SystemOptions {{ tolerance: {}, function_tolerance: {}, max_iterations: rt::stan::usize_of({})? }}",
                 data_real(g, r)?,
                 data_real(g, f)?,
-                g.expr(m)?
+                steps(g, m)?
             ))
         };
         let data_vec = |g: &mut Gen, a: &TExpr| -> R<String> { g.expr_as(a, &a.ty, &Ad::DataOnly) };

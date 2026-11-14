@@ -719,3 +719,17 @@ fn data_assigned_to_parameter_variables() {
     assert_close(lp, expected, 1e-14);
     assert_close(g[0], -(1.0 + mu - 0.5) - mu, 1e-14);
 }
+
+// A bound that depends on an earlier parameter, and a `~` inside an `_lp` function.
+#[test]
+fn dependent_bounds_and_lp_tilde() {
+    let m = fx::dependent_bounds::Model::new(&data("{}"), 0).unwrap();
+    let back = m.unconstrain(&data(r#"{"a": 0.25, "b": 0.5}"#)).unwrap();
+    let out = m.write_array(&back, false, false, &mut rng()).unwrap();
+    assert_close(out[0], 0.25, 1e-14);
+    assert_close(out[1], 0.5, 1e-14);
+    // Dropping constants removes the normal normalizers of both `~` statements.
+    let full = m.log_density(&back, FULL).unwrap();
+    let propto = m.log_density(&back, PROPTO).unwrap();
+    assert_close(full - propto, -LN_2PI, 1e-12);
+}

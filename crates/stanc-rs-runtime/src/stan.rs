@@ -120,6 +120,36 @@ impl<T: StanDisplay + Clone> StanDisplay for Matrix<T> {
     }
 }
 
+macro_rules! tuple_display {
+    ($($t:ident $i:tt),+) => {
+        impl<$($t: StanDisplay),+> StanDisplay for ($($t,)+) {
+            fn stan_fmt(&self, out: &mut String) {
+                out.push('(');
+                $(
+                    if $i > 0 {
+                        out.push_str(", ");
+                    }
+                    self.$i.stan_fmt(out);
+                )+
+                out.push(')');
+            }
+        }
+    };
+}
+
+tuple_display!(A 0);
+tuple_display!(A 0, B 1);
+tuple_display!(A 0, B 1, C 2);
+tuple_display!(A 0, B 1, C 2, D 3);
+tuple_display!(A 0, B 1, C 2, D 3, E 4);
+tuple_display!(A 0, B 1, C 2, D 3, E 4, F 5);
+tuple_display!(A 0, B 1, C 2, D 3, E 4, F 5, G 6);
+tuple_display!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7);
+tuple_display!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8);
+tuple_display!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9);
+tuple_display!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10);
+tuple_display!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 11);
+
 impl StanDisplay for &str {
     fn stan_fmt(&self, out: &mut String) {
         out.push_str(self);
@@ -213,6 +243,16 @@ pub fn matrix_from_rows<S: Clone>(rows: Vec<Vec<S>>) -> Result<Matrix<S>> {
         }
     }
     Ok(Matrix::from_column_major(r, c, data))
+}
+
+/// Stan's `to_int`: truncates toward zero, rejecting values outside the 32 bit integer range.
+pub fn to_int(x: f64) -> Result<i64> {
+    if x.is_nan() || x < i32::MIN as f64 || x >= i32::MAX as f64 + 1.0 {
+        return Err(ModelError::domain(format!(
+            "to_int: argument is {x}, but must be in the 32 bit integer range"
+        )));
+    }
+    Ok(x.trunc() as i64)
 }
 
 /// Converts library sizes to Stan integers.
@@ -345,4 +385,24 @@ pub fn csr<T: Clone>(
         columns: zero_based(v)?,
         row_starts: zero_based(u)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn to_int_truncates_and_checks_range() {
+        assert_eq!(to_int(2.9).unwrap(), 2);
+        assert_eq!(to_int(-2.9).unwrap(), -2);
+        assert!(to_int(f64::NAN).is_err());
+        assert!(to_int(3e9).is_err());
+    }
+
+    #[test]
+    fn tuples_print_in_parentheses() {
+        let mut s = String::new();
+        (1_i64, (vec![0.5_f64], 2_i64)).stan_fmt(&mut s);
+        assert_eq!(s, "(1, ([0.5], 2))");
+    }
 }

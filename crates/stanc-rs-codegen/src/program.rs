@@ -318,7 +318,10 @@ impl Gen {
             }
             match suffix {
                 FnSuffix::Rng => params.push("rng__: &mut dyn rt::rand::Rng".into()),
-                FnSuffix::Lp => params.push("target__: &mut T".into()),
+                FnSuffix::Lp => {
+                    params.push("target__: &mut T".into());
+                    params.push("propto__: bool".into());
+                }
                 FnSuffix::Jacobian => {
                     params.push("target__: &mut T".into());
                     params.push("jacobian__: bool".into());
@@ -867,7 +870,10 @@ impl Gen {
             "let {v}: {} = {read};",
             rust_type(&uty, &Ad::DataOnly)
         ));
-        self.free_value(&v, &d.ty, &d.trans)
+        self.free_value(&v, &d.ty, &d.trans)?;
+        // Later bounds may refer to this parameter.
+        self.line(&format!("let {} = {v};", mangle(&d.name)));
+        Ok(())
     }
 
     /// Emits the unconstraining of the value `v` of parameter type `ty`.

@@ -1143,7 +1143,12 @@ impl Checker {
                     .zip(&promotions)
                     .map(|(e, p)| promote(e, p))
                     .collect();
-                let ad = fun_app_ad(&ty, &args);
+                // Library random draws are data, whatever their arguments.
+                let ad = if kind == FunKind::StanLib && id.name.ends_with("_rng") {
+                    Ad::DataOnly.fill_for(&ty)
+                } else {
+                    fun_app_ad(&ty, &args)
+                };
                 Ok(texpr(
                     TExprKind::FunApp {
                         kind,
@@ -3451,7 +3456,8 @@ fn verify_lvalue_unique(l: &TLValue) -> R<()> {
     Ok(())
 }
 
-fn texpr_vars(e: &TExpr, out: &mut Vec<String>) {
+/// Every variable name an expression mentions.
+pub fn texpr_vars(e: &TExpr, out: &mut Vec<String>) {
     match &e.kind {
         TExprKind::Variable { name, .. } => out.push(name.clone()),
         TExprKind::FunApp { args, .. }

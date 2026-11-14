@@ -202,11 +202,24 @@ impl Gen {
                 let ad = ad.clone().fill_for(&uty);
                 let rty = rust_type(&uty, &ad);
                 for v in vars {
+                    let name = mangle(&v.name);
+                    let mut used = Vec::new();
+                    if let Some(e) = &v.init {
+                        stanc_rs_semantic::check::texpr_vars(e, &mut used);
+                    }
+                    // An initializer that reads the variable itself sees its default value.
                     let init = match &v.init {
+                        Some(e) if used.contains(&v.name) => {
+                            let d = self.default_value(ty, &ad)?;
+                            self.line(&format!("let mut {name}: {rty} = {d};"));
+                            let c = self.expr_as(e, &uty, &ad)?;
+                            self.line(&format!("{name} = {c};"));
+                            continue;
+                        }
                         Some(e) => self.expr_as(e, &uty, &ad)?,
                         None => self.default_value(ty, &ad)?,
                     };
-                    self.line(&format!("let mut {}: {rty} = {init};", mangle(&v.name)));
+                    self.line(&format!("let mut {name}: {rty} = {init};"));
                 }
                 Ok(())
             }
@@ -409,6 +422,17 @@ impl Gen {
     ) -> R<()> {
         let base = dist.trim_end_matches("_lpdf").trim_end_matches("_lpmf");
         let discrete = dist.ends_with("_lpmf");
+        // Both CDF terms share one autodiff level so they combine.
+        let bounds_ad = match truncation {
+            TTruncation::UpFrom(b) | TTruncation::DownFrom(b) => b.ad.has_autodiff(),
+            TTruncation::Between(l, u) => l.ad.has_autodiff() || u.ad.has_autodiff(),
+            TTruncation::None => false,
+        };
+        let ad = &if bounds_ad || ad.has_autodiff() {
+            Ad::AutoDiffable
+        } else {
+            Ad::DataOnly
+        };
         let cdf = |g: &mut Gen, which: &str, bound: &TExpr| -> R<String> {
             // For a discrete distribution the lower truncation point is `L - 1`.
             let b = if discrete && which == "lccdf_lower" {
@@ -462,6 +486,11 @@ impl Gen {
             };
             let mut cargs = vec![b];
             cargs.extend(args.iter().cloned());
+            let own = if cargs.iter().any(|a| a.ad.has_autodiff()) {
+                Ad::AutoDiffable
+            } else {
+                Ad::DataOnly
+            };
             let e = TExpr {
                 // A user-defined distribution brings its own `_lcdf` and `_lccdf`.
                 kind: TExprKind::FunApp {
@@ -471,10 +500,10 @@ impl Gen {
                     cond: true,
                 },
                 ty: U::Real,
-                ad: ad.clone(),
+                ad: own,
                 span: s.span,
             };
-            g.expr(&e)
+            g.expr_as(&e, &U::Real, ad)
         };
         let y = self.expr_as(arg, &U::Real, &Ad::DataOnly)?;
         let yv = self.fresh("y");
