@@ -19,6 +19,27 @@ impl Gen {
         Ok(())
     }
 
+    /// Emits the statements of a program block. Each statement other than a declaration runs in
+    /// its own immediately called closure: rustc's borrow checking time grows faster than
+    /// linearly with the size of a function body, and the closures keep the bodies small. A
+    /// top-level statement never breaks, continues, or returns out of the block, so the closure
+    /// changes nothing else.
+    pub fn block_stmts(&mut self, ss: &[TStmt]) -> R<()> {
+        for s in ss {
+            if matches!(s.kind, TStmtKind::VarDecl { .. } | TStmtKind::Skip) {
+                self.stmt(s)?;
+                continue;
+            }
+            self.line("(|| -> rt::Result<()> {");
+            self.indent += 1;
+            self.stmt(s)?;
+            self.line("Ok(())");
+            self.indent -= 1;
+            self.line("})()?;");
+        }
+        Ok(())
+    }
+
     fn body(&mut self, s: &TStmt) -> R<()> {
         match &s.kind {
             TStmtKind::Block(ss) => self.stmts(ss),

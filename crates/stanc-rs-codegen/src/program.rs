@@ -109,7 +109,7 @@ impl Gen {
             ));
             self.check_decl(d, &Ad::DataOnly)?;
         }
-        self.stmts(&p.transformed_data)?;
+        self.block_stmts(&p.transformed_data)?;
         for d in &tdata {
             self.check_decl(d, &Ad::DataOnly)?;
         }
@@ -175,13 +175,13 @@ impl Gen {
         for d in &params {
             self.read_param(d)?;
         }
-        self.stmts(&p.transformed_parameters)?;
+        self.block_stmts(&p.transformed_parameters)?;
         for d in &tparams {
             self.check_decl(d, &Ad::AutoDiffable)?;
         }
         self.line("{");
         self.indent += 1;
-        self.stmts(&p.model)?;
+        self.block_stmts(&p.model)?;
         self.indent -= 1;
         self.line("}");
         self.line("Ok(target_val__)");
@@ -211,7 +211,7 @@ impl Gen {
             k += 1;
         }
         self.line("if !(include_tp__ || include_gq__) { return Ok(out__); }");
-        self.stmts(&p.transformed_parameters)?;
+        self.block_stmts(&p.transformed_parameters)?;
         for d in &tparams {
             self.check_decl(d, &Ad::DataOnly)?;
         }
@@ -227,7 +227,7 @@ impl Gen {
         self.indent -= 1;
         self.line("}");
         self.line("if !include_gq__ { return Ok(out__); }");
-        self.stmts(&p.generated_quantities)?;
+        self.block_stmts(&p.generated_quantities)?;
         for d in &gq {
             self.check_decl(d, &Ad::DataOnly)?;
         }
