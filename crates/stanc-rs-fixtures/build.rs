@@ -15,6 +15,7 @@ fn main() {
         .collect();
     files.sort();
     let mut index = String::new();
+    let mut stems = Vec::new();
     for f in files {
         println!("cargo::rerun-if-changed={}", f.display());
         let stem = f.file_stem().unwrap().to_str().unwrap().to_string();
@@ -31,6 +32,20 @@ fn main() {
             "pub mod {stem} {{ include!(concat!(env!(\"OUT_DIR\"), \"/{stem}.rs\")); }}"
         )
         .unwrap();
+        stems.push(stem);
     }
+    index.push_str(
+        "/// Builds the fixture model called `name` from `data`, or `None` if there is no such model.\n\
+         pub fn model(name: &str, data: &stanc_rs_runtime::data::Data, seed: u64) \
+         -> Option<stanc_rs_runtime::Result<Box<dyn stanc_rs_runtime::Model>>> {\n    match name {\n",
+    );
+    for stem in &stems {
+        writeln!(
+            index,
+            "        {stem:?} => Some({stem}::Model::new(data, seed).map(|m| Box::new(m) as Box<dyn stanc_rs_runtime::Model>)),"
+        )
+        .unwrap();
+    }
+    index.push_str("        _ => None,\n    }\n}\n");
     std::fs::write(out.join("models.rs"), index).unwrap();
 }
