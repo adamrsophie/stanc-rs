@@ -22,4 +22,7 @@ generated quantities {
   complex_row_vector[1] cds = columns_dot_self(cv);
   complex_vector[2] rdp = rows_dot_product(cv, cv);
   complex_vector[2] dv = to_complex(2, 0) / cv;
+  complex_matrix[2, 2] cm = [[1, 2], [3, to_complex(4, 1)]];
+  array[2] complex_vector[2] cva = to_vector_array(cm);
+  array[2, 2] complex ca = to_array_2d(cm);
 }
