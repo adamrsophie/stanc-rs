@@ -15,14 +15,14 @@ the Stan Development Team, and it is not a drop-in replacement for stanc3 or Cmd
 Early development. See [docs/compatibility.md](docs/compatibility.md) for measured coverage and
 known gaps.
 
-* Parsing and type checking: every program in stanc3's `test/integration/good` corpus is
-  accepted, and every program in the `bad` corpus that stanc3 rejects for a semantic reason is
-  rejected.
-* Code generation: see the compatibility document for the share of the corpus that compiles to
-  Rust that builds.
+* Parsing and type checking: all 1244 programs in stanc3's `test/integration/good` corpus are
+  accepted and all 1191 programs in the `bad` corpus are rejected, with the error on the same
+  line as stanc3.
+* Code generation: 1242 of the 1244 good programs are translated, and the Rust of all 1242
+  builds. The two that are not use a Laplace function variant stanmath-rs does not have yet.
 * Numerical tests: the models in `crates/stanc-rs-fixtures/models` are compiled at build time and
   their log densities, gradients, Jacobians, constrained values, and errors are checked against
-  independent closed forms.
+  independent closed forms. Their log densities and gradients also agree with CmdStan 2.40.0.
 
 ## Build
 
