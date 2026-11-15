@@ -804,8 +804,13 @@ impl Gen {
     }
 }
 
-/// A Rust string literal with the contents of a Stan string literal (Stan escapes kept).
+/// A Rust string literal with the contents of a Stan string literal (Stan escapes kept). The
+/// lexer keeps the delimiting quotes, which are not part of the contents.
 pub fn rust_string(s: &str) -> String {
+    let s = s
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(s);
     let mut out = String::from("\"");
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {

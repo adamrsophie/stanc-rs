@@ -957,3 +957,22 @@ fn constraint_transforms() {
     assert_close(jac, expected, 1e-6);
     check_gradient(&m, &theta, FULL);
 }
+
+// `reject` and `fatal_error` report their arguments formatted as Stan prints them.
+#[test]
+fn reject_and_fatal_error() {
+    let m = fx::messages::Model::new(&data("{}"), 0).unwrap();
+    assert_close(
+        m.log_density(&[0.5], FULL).unwrap(),
+        normal_lpdf(0.5, 0.0, 1.0),
+        1e-14,
+    );
+    let e = m.log_density(&[11.0], FULL).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Reject);
+    assert_eq!(e.message, "x is 11, with [1,2.5] and [1,2]");
+    let e = m
+        .write_array(&[-11.0], false, true, &mut rng())
+        .unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Fatal);
+    assert_eq!(e.message, "x below -10");
+}
