@@ -4,7 +4,9 @@
 //! exact control over the few context-sensitive spots: the two-word block keywords
 //! (`transformed data`), `.1` as either a real literal or a tuple projection, and `#include`.
 
-use crate::source::{Diagnostic, DiagnosticKind, SourceFile, SourceMap, Span};
+use crate::source::{
+    Comment, CommentKind, Diagnostic, DiagnosticKind, SourceFile, SourceMap, Span,
+};
 
 /// Token kinds.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -224,6 +226,38 @@ const KEYWORDS: &[(&str, Tok)] = &[
     ("target", Tok::Target),
 ];
 
+/// Tokens after which stanc3's lexer records a separator for the formatter.
+const SEPARATORS: &[&str] = &[
+    "<", ">", ",", "|", "?", "-", "+", "^", "*", "/", "%", "%/%", "\\", ".*", ".^", "./", "||",
+    "&&", "==", "!=", "<=", ">=",
+];
+
+/// Splits at stanc3's line terminators: `\r`, `\n`, or `\r*\n`.
+fn split_lines(s: &str) -> Vec<String> {
+    let b = s.as_bytes();
+    let mut out = Vec::new();
+    let (mut start, mut i) = (0, 0);
+    while i < b.len() {
+        if b[i] == b'\n' || b[i] == b'\r' {
+            out.push(s[start..i].to_string());
+            let mut j = i;
+            while j < b.len() && b[j] == b'\r' {
+                j += 1;
+            }
+            i = if j < b.len() && b[j] == b'\n' {
+                j + 1
+            } else {
+                i + 1
+            };
+            start = i;
+        } else {
+            i += 1;
+        }
+    }
+    out.push(s[start..].to_string());
+    out
+}
+
 const SYMBOLS: &[(&str, Tok)] = &[
     // Longest first.
     ("%/%", Tok::IDivide),
@@ -381,7 +415,15 @@ fn lex_file(
         // Comments.
         if text[i..].starts_with("/*") {
             match text[i + 2..].find("*/") {
-                Some(k) => i = i + 2 + k + 2,
+                Some(k) => {
+                    let body = &text[i + 2..i + 2 + k];
+                    let lines = split_lines(body);
+                    sources.comments.push(Comment {
+                        kind: CommentKind::Block(lines),
+                        span: Span::new(file, i + 2, i + 2 + k + 2),
+                    });
+                    i = i + 2 + k + 2;
+                }
                 None => {
                     // Reported at the end of the file, where stanc3 reports it.
                     return Err(err(
@@ -395,9 +437,27 @@ fn lex_file(
             continue;
         }
         if text[i..].starts_with("//") {
-            while i < b.len() && b[i] != b'\n' {
+            let start = i + 2;
+            i = start;
+            while i < b.len() && b[i] != b'\n' && b[i] != b'\r' {
                 i += 1;
             }
+            let body = text[start..i].to_string();
+            // As in stanc3, the comment ends after its line terminator.
+            if i < b.len() && b[i] == b'\r' {
+                while i < b.len() && b[i] == b'\r' {
+                    i += 1;
+                }
+                if i < b.len() && b[i] == b'\n' {
+                    i += 1;
+                }
+            } else if i < b.len() {
+                i += 1;
+            }
+            sources.comments.push(Comment {
+                kind: CommentKind::Line(body),
+                span: Span::new(file, start, i),
+            });
             continue;
         }
         // Include directive.
@@ -484,6 +544,10 @@ fn lex_file(
                 i = end;
                 continue;
             }
+            sources.comments.push(Comment {
+                kind: CommentKind::Include(name.clone()),
+                span: Span::new(file, start, end),
+            });
             let mut inc = SourceFile::new(display, contents);
             inc.included_from = Some(Span::new(file, start, end));
             let id = sources.add(inc);
@@ -539,6 +603,12 @@ fn lex_file(
                 .find(|(k, _)| *k == word)
                 .map(|(_, t)| t.clone())
                 .unwrap_or_else(|| Tok::Ident(word.to_string()));
+            if word == "else" {
+                sources.comments.push(Comment {
+                    kind: CommentKind::Separator,
+                    span: Span::new(file, j, j),
+                });
+            }
             out.push(Token {
                 tok,
                 span: Span::new(file, i, j),
@@ -584,6 +654,12 @@ fn lex_file(
                 tok: t.clone(),
                 span: Span::new(file, i, i + s.len()),
             });
+            if SEPARATORS.contains(s) {
+                sources.comments.push(Comment {
+                    kind: CommentKind::Separator,
+                    span: Span::new(file, i + s.len(), i + s.len()),
+                });
+            }
             i += s.len();
             continue;
         }

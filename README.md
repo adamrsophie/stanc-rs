@@ -40,7 +40,7 @@ stanc-rs check   model.stan            # parse and type check
 stanc-rs compile model.stan -o model.rs  # generate Rust
 stanc-rs ast     model.stan            # print the syntax tree
 stanc-rs ir      model.stan            # print the typed program
-stanc-rs format  model.stan            # pretty print
+stanc-rs format  model.stan            # as stanc --auto-format
 stanc-rs info    model.stan            # variables and library calls as JSON, as stanc3 --info
 ```
 

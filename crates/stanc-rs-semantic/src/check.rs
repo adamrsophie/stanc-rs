@@ -157,8 +157,11 @@ pub struct CheckOptions {
 pub struct Checked {
     /// Typed program.
     pub program: TProgram,
-    /// Warnings.
+    /// Warnings, including the deprecation warnings.
     pub warnings: Vec<Diagnostic>,
+    /// How many of the last `warnings` are deprecation warnings, which stanc3 leaves out when it
+    /// canonicalizes deprecations away.
+    pub deprecations: usize,
 }
 
 /// Type checks a program.
@@ -243,11 +246,13 @@ pub fn check_program(p: &Program, opts: &CheckOptions) -> Result<Checked, Diagno
         *dst = stmts;
     }
     c.verify_second_order(&out.functions)?;
+    let deprecations = crate::deprecation::warnings(p);
     Ok(Checked {
         program: out,
+        deprecations: deprecations.len(),
         warnings: {
             let mut w = c.warnings;
-            w.extend(crate::deprecation::warnings(p));
+            w.extend(deprecations);
             w
         },
     })

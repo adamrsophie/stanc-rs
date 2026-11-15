@@ -11,13 +11,16 @@
 //! ```
 
 pub mod ast;
+pub mod autoformat;
+pub mod canonicalize;
+pub mod format;
 pub mod lexer;
 pub mod parser;
 pub mod pretty;
 pub mod source;
 
 pub use lexer::{IncludeResolver, NoIncludes};
-pub use source::{Diagnostic, DiagnosticKind, SourceFile, SourceMap, Span};
+pub use source::{Comment, CommentKind, Diagnostic, DiagnosticKind, SourceFile, SourceMap, Span};
 
 /// Lexes and parses a program. On error, the source map is returned with the diagnostic so that
 /// it can be rendered.

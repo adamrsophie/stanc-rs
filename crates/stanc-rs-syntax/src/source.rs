@@ -111,11 +111,38 @@ impl SourceFile {
     }
 }
 
+/// What a [`Comment`] records.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CommentKind {
+    /// `// text`, without the slashes and the line terminator.
+    Line(String),
+    /// `/* lines */`, the text between the delimiters split at line terminators.
+    Block(Vec<String>),
+    /// An `#include` directive and the file name it names.
+    Include(String),
+    /// The end of a comma, an operator, `|`, `?`, `<`, `>`, or `else`: tokens whose location
+    /// the syntax tree does not keep, which the formatter uses to place comments.
+    Separator,
+}
+
+/// A comment or another piece of the source the formatter needs, in source order. As in
+/// stanc3, a comment's span starts after its opening delimiter; a line comment's span ends at
+/// its line terminator and a block comment's after the closing delimiter.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Comment {
+    /// What it is.
+    pub kind: CommentKind,
+    /// Where it is.
+    pub span: Span,
+}
+
 /// All files of a compilation: the main file and its includes.
 #[derive(Clone, Debug, Default)]
 pub struct SourceMap {
     /// Files, indexed by [`Span::file`].
     pub files: Vec<SourceFile>,
+    /// Comments, includes, and separators of all files, in the order the lexer met them.
+    pub comments: Vec<Comment>,
 }
 
 impl SourceMap {

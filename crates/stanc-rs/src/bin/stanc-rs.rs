@@ -19,6 +19,10 @@ OPTIONS:
     --name <name>             Model name (default: <file stem>_model)
     --include-paths <dirs>    Comma-separated directories searched for #include files
     --allow-undefined         Accept function declarations without definitions
+    --max-line-length <n>     Line length for format (default: 78)
+    --canonicalize <list>     Rewrites for format: deprecations, parentheses, braces,
+                              includes, strip-comments (comma-separated)
+    --print-canonical         For format: --canonicalize deprecations,parentheses,braces,includes
     --help, -h                Print this message
     --version, -V             Print the version
 ";
@@ -43,6 +47,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
     let mut file = None;
     let mut output = None;
     let mut opts = stanc_rs::Options::default();
+    let mut fopts = stanc_rs::syntax::autoformat::Options::default();
+    let mut canon = stanc_rs::syntax::canonicalize::Settings::default();
+    let mut print_canonical = false;
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
         let mut value = |flag: &str| it.next().ok_or_else(|| format!("missing value for {flag}"));
@@ -66,11 +73,33 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 );
             }
             "--allow-undefined" => opts.allow_undefined = true,
+            "--canonicalize" => {
+                let v = stanc_rs::syntax::canonicalize::Settings::parse(&value(&a)?)?;
+                // Repeated options accumulate, as in stanc3.
+                canon.deprecations |= v.deprecations;
+                canon.parentheses |= v.parentheses;
+                canon.braces |= v.braces;
+                canon.inline_includes |= v.inline_includes;
+                canon.strip_comments |= v.strip_comments;
+            }
+            "--print-canonical" => print_canonical = true,
+            "--max-line-length" => {
+                let v = value(&a)?;
+                fopts.line_length = v
+                    .parse()
+                    .ok()
+                    .filter(|n| *n > 0)
+                    .ok_or_else(|| format!("invalid line length '{v}'"))?;
+            }
             s if s.starts_with('-') => return Err(format!("unknown option '{s}'\n\n{USAGE}")),
             _ if cmd.is_none() => cmd = Some(a),
             _ if file.is_none() => file = Some(a),
             _ => return Err(format!("unexpected argument '{a}'\n\n{USAGE}")),
         }
+    }
+    // As in stanc3, --print-canonical overrides --canonicalize.
+    if print_canonical {
+        canon = stanc_rs::syntax::canonicalize::Settings::LEGACY;
     }
     let (Some(cmd), Some(file)) = (cmd, file) else {
         return Err(USAGE.to_string());
@@ -106,8 +135,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
             print!("{}", c.info());
         }
         "format" => {
-            let (p, _) = stanc_rs::parse(&file, &text, &opts)?;
-            print!("{}", stanc_rs::syntax::pretty::program(&p));
+            let (out, warnings) = stanc_rs::format_source(&file, &text, &opts, &fopts, &canon)?;
+            print_warnings(&warnings);
+            println!("{out}");
         }
         other => return Err(format!("unknown command '{other}'\n\n{USAGE}")),
     }

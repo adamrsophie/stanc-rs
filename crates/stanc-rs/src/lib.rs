@@ -93,10 +93,15 @@ impl IncludeResolver for FileIncludes<'_> {
             .iter()
             .chain(std::iter::once(&self.main_dir))
             .find_map(|dir| {
-                let p = dir.join(name);
-                std::fs::read_to_string(&p)
-                    .ok()
-                    .map(|text| (p.display().to_string(), text))
+                // OCaml's `Filename.concat`, which stanc3 uses: a name starting with a slash
+                // is still looked up inside the directory.
+                let dir = dir.display().to_string();
+                let p = if dir.ends_with('/') {
+                    format!("{dir}{name}")
+                } else {
+                    format!("{dir}/{name}")
+                };
+                std::fs::read_to_string(&p).ok().map(|text| (p, text))
             })
     }
 
@@ -166,6 +171,64 @@ pub fn check_source(name: &str, text: &str, opts: &Options) -> Result<Checked, S
         warnings,
         included_files,
     })
+}
+
+/// Parses and type checks a program, canonicalizes it with `canon`, and formats it as
+/// `stanc --auto-format` does. Returns the formatted program and the rendered warnings.
+pub fn format_source(
+    name: &str,
+    text: &str,
+    opts: &Options,
+    format: &stanc_rs_syntax::autoformat::Options,
+    canon: &stanc_rs_syntax::canonicalize::Settings,
+) -> Result<(String, Vec<String>), String> {
+    let (ast, sources) = parse(name, text, opts)?;
+    let model_name = opts
+        .model_name
+        .clone()
+        .unwrap_or_else(|| default_model_name(name));
+    let copts = stanc_rs_semantic::CheckOptions {
+        allow_undefined: opts.allow_undefined,
+        model_name,
+    };
+    let checked = stanc_rs_semantic::check_program(&ast, &copts).map_err(|d| d.render(&sources))?;
+    let keep = checked.warnings.len()
+        - if canon.deprecations {
+            checked.deprecations
+        } else {
+            0
+        };
+    let warnings = parser_warnings(&ast, &sources)
+        .iter()
+        .chain(&checked.warnings[..keep])
+        .map(|w| w.render(&sources))
+        .collect();
+    let ast = stanc_rs_syntax::canonicalize::canonicalize(&ast, canon);
+    let format = stanc_rs_syntax::autoformat::Options {
+        bare_functions: name.ends_with(".stanfunctions"),
+        inline_includes: format.inline_includes || canon.inline_includes,
+        strip_comments: format.strip_comments || canon.strip_comments,
+        ..format.clone()
+    };
+    let out = stanc_rs_syntax::autoformat::format_program(&ast, &sources, &format)?;
+    // As stanc3 does, check that the output parses back to the same program. The canonical
+    // printer ignores locations, so equal renderings mean equal syntax trees.
+    let same = stanc_rs_syntax::parse_with(
+        name,
+        &out,
+        &FileIncludes::new(name, opts),
+        format.bare_functions,
+    )
+    .is_ok_and(|(again, _)| {
+        stanc_rs_syntax::pretty::program(&again) == stanc_rs_syntax::pretty::program(&ast)
+    });
+    if !same {
+        return Err(format!(
+            "Cannot format '{name}': an #include or comment sits where the formatter cannot \
+             keep it, and the formatted program would differ from the original."
+        ));
+    }
+    Ok((out, warnings))
 }
 
 /// Parses, type checks, and translates a program to Rust.

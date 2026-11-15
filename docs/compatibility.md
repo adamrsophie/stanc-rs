@@ -20,7 +20,8 @@ release, with stanmath-rs at revision `04dc87184161bf29cbc035a32eb0407b14169900`
 | Translated programs whose Rust builds (`cargo check`) | 1244 of 1244 |
 | `stanc-rs info` equal to `stanc --info` (as JSON values) | 1244 of 1244 |
 | Fixture models whose log density and gradient agree with CmdStan's `log_prob` | 24 of 24 |
-| `stanc-rs format` output identical to `stanc --auto-format` | 0 of 1244 |
+| `stanc-rs format` output identical to `stanc --auto-format` | 1245 of 1245 (1244 programs and one `.stanfunctions` file) |
+| The same with `--max-line-length` 12 and 40, and with each `--canonicalize` option and `--print-canonical` | 1245 of 1245 each |
 
 "Builds" means the generated module type checks against the runtime and stanmath-rs. It does not
 mean the model's numbers were checked; see [Numerical validation](#numerical-validation) for the
@@ -33,6 +34,7 @@ cargo build --release
 python3 tools/corpus.py STANC3_DIR OUT_DIR --check   # translation and cargo check
 python3 tools/info_diff.py STANC3_DIR STANC          # info against stanc --info
 python3 tools/bad_diff.py STANC3_DIR STANC           # rejections and error locations
+python3 tools/format_diff.py STANC3_DIR STANC        # format against stanc --auto-format
 python3 tools/cmdstan_diff.py CMDSTAN_DIR WORK_DIR   # fixture densities against CmdStan
 ```
 
@@ -95,12 +97,13 @@ data.
 
 * **Random numbers.** `_rng` functions draw from stanmath-rs's generators, so the streams differ
   from CmdStan's even with the same seed. Distributions are the same; individual draws are not.
-* **Formatting.** `stanc-rs format` prints a canonical rendering of the syntax tree with every
-  operator expression in parentheses. It does not reproduce stanc3's `--auto-format` layout,
-  line breaking, or comment placement.
-* **Not implemented command line features:** `--warn-pedantic`, `--print-canonical` and the
-  other canonicalizer options, optimization levels (`-O0`, `-O1`), `--standalone-functions`,
-  and JSON diagnostics.
+* **Formatting.** `stanc-rs format` ports stanc3's formatter and OCaml's `Format` line
+  breaking, so its layout and comment placement are stanc3's (see the summary). The programs
+  with `#include` in the stanc3 test directories also format identically, with and without
+  `--canonicalize includes`. Where stanc3 stops with an internal error because an `#include`
+  or comment cannot be kept in place, stanc-rs reports an ordinary error instead.
+* **Not implemented command line features:** `--warn-pedantic`, optimization levels (`-O0`,
+  `-O1`), `--standalone-functions`, and JSON diagnostics.
 * **Optimization.** The typed AST is translated directly. There are no optimization passes.
 * **Code generation target.** Generated models implement the `stanc_rs_runtime::GeneratedModel`
   trait; they are not C++ and cannot be used by CmdStan.
