@@ -169,13 +169,62 @@ pub fn format_program(p: &Program, sources: &SourceMap, opts: &Options) -> Resul
     Ok(pr.f.finish())
 }
 
-/// An expression as stanc3 prints it in messages: no comments, on one line if it fits in 78
-/// columns.
-pub fn expression(e: &Expr, sources: &SourceMap) -> String {
-    let mut pr = Printer::new(sources, &Options::default());
-    pr.comments.clear();
-    pr.expr(e);
-    pr.f.finish()
+static NO_SOURCES: SourceMap = SourceMap {
+    files: Vec::new(),
+    comments: Vec::new(),
+};
+
+/// Lays out a message as stanc3's type checker does with `@[<v>...@]`: literal text, and
+/// expressions in indented boxes printed by stanc3's printer, without comments.
+pub struct Message(Printer<'static>);
+
+impl Default for Message {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Message {
+    /// An empty message.
+    pub fn new() -> Self {
+        let mut p = Printer::new(&NO_SOURCES, &Options::default());
+        p.f.open(BoxKind::V, 0);
+        Message(p)
+    }
+
+    /// Literal text; its spaces are not break hints.
+    pub fn text(&mut self, s: &str) -> &mut Self {
+        self.0.f.string(s);
+        self
+    }
+
+    /// A break hint of the vertical box: a new line.
+    pub fn newline(&mut self) -> &mut Self {
+        self.0.f.space();
+        self
+    }
+
+    /// An expression.
+    pub fn expr(&mut self, e: &Expr) -> &mut Self {
+        self.0.expr(e);
+        self
+    }
+
+    /// stanc3's `pp_indented_box`: `@,    @[<hov 2>...@]@,`.
+    pub fn indented(&mut self, body: impl FnOnce(&mut Message)) -> &mut Self {
+        self.0.f.cut();
+        self.0.f.string("    ");
+        self.0.f.open(BoxKind::HOV, 2);
+        body(self);
+        self.0.f.close();
+        self.0.f.cut();
+        self
+    }
+
+    /// The laid out message.
+    pub fn finish(self) -> String {
+        self.0.f.finish()
+    }
 }
 
 impl<'a> Printer<'a> {
@@ -252,7 +301,11 @@ impl<'a> Printer<'a> {
     }
 
     fn loc(&self, file: u32, offset: usize) -> Loc {
-        let (line, col) = self.sources.files[file as usize].line_byte_col(offset);
+        let Some(f) = self.sources.files.get(file as usize) else {
+            // Messages print expressions without their sources; locations do not matter there.
+            return Loc::EMPTY;
+        };
+        let (line, col) = f.line_byte_col(offset);
         Loc {
             line: line as i64,
             col: col as i64,

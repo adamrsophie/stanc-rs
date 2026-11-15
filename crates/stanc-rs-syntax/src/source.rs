@@ -171,39 +171,6 @@ impl SourceMap {
     }
 }
 
-/// The right margin of OCaml's `Format` module, which stanc3 prints through.
-pub const MARGIN: usize = 78;
-
-/// Fills `text` as `Fmt.text` in an OCaml `Format` box opened at column `indent`: every space
-/// is a break hint, taken when the line with the next word would reach [`MARGIN`], and every newline starts a
-/// new line at the box's indentation. The first line is assumed to start at `indent`.
-pub fn fill(text: &str, indent: usize) -> String {
-    let pad = " ".repeat(indent);
-    let mut out = String::new();
-    for (k, line) in text.split('\n').enumerate() {
-        if k > 0 {
-            out.push('\n');
-            out.push_str(&pad);
-        }
-        let mut col = indent;
-        for (j, word) in line.split(' ').enumerate() {
-            if j > 0 {
-                if col + 1 + word.len() >= MARGIN {
-                    out.push('\n');
-                    out.push_str(&pad);
-                    col = indent;
-                } else {
-                    out.push(' ');
-                    col += 1;
-                }
-            }
-            out.push_str(word);
-            col += word.len();
-        }
-    }
-    out
-}
-
 /// What kind of problem a diagnostic reports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DiagnosticKind {
@@ -380,14 +347,30 @@ impl Diagnostic {
             .filter(|s| (s.file as usize) < sources.files.len());
         if self.kind == DiagnosticKind::Warning {
             // stanc3: `@[<v4>Warning in @[<location>@]:@ @[<text>@]@]`.
+            let mut f = crate::format::Formatter::new();
+            f.open(crate::format::BoxKind::V, 4);
             match span {
                 Some(s) => {
-                    let loc = sources.pp_span(s).replace('\n', "\n           ");
-                    let _ = writeln!(out, "Warning in {loc}:");
+                    f.string("Warning in ");
+                    f.open(crate::format::BoxKind::B, 0);
+                    for (i, part) in sources.pp_span(s).split('\n').enumerate() {
+                        if i > 0 {
+                            f.force_newline();
+                        }
+                        f.string(part);
+                    }
+                    f.close();
+                    f.string(":");
                 }
-                None => out.push_str("Warning:\n"),
+                None => f.string("Warning:"),
             }
-            let _ = writeln!(out, "    {}", fill(&self.message, 4));
+            f.space();
+            f.open(crate::format::BoxKind::B, 0);
+            f.text(&self.message);
+            f.close();
+            f.close();
+            out.push_str(&f.finish());
+            out.push('\n');
             return out;
         }
         match span {

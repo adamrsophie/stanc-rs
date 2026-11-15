@@ -15,7 +15,9 @@ release, with stanmath-rs at revision `04dc87184161bf29cbc035a32eb0407b14169900`
 | `bad` programs rejected | 1191 of 1191 (stanc3 rejects all 1191) |
 | Crashes on `bad` programs | 0 |
 | Error reported on the same line as stanc3 | 1191 of 1191 |
-| Same error category as stanc3 (syntax or semantic) | 1173 of 1191 |
+| Same error category as stanc3 (syntax or semantic) | 1191 of 1191 |
+| Error message text identical to stanc3's | 98 of 1191 (see [Diagnostics](#diagnostics)) |
+| Warning text identical to stanc3's, on the 52 `good` programs with warnings | 52 of 52 |
 | `good` programs translated to Rust | 1244 of 1244 |
 | Translated programs whose Rust builds (`cargo check`) | 1244 of 1244 |
 | `stanc-rs info` equal to `stanc --info` (as JSON values) | 1244 of 1244 |
@@ -34,6 +36,8 @@ cargo build --release
 python3 tools/corpus.py STANC3_DIR OUT_DIR --check   # translation and cargo check
 python3 tools/info_diff.py STANC3_DIR STANC          # info against stanc --info
 python3 tools/bad_diff.py STANC3_DIR STANC           # rejections and error locations
+python3 tools/message_diff.py STANC3_DIR STANC       # error message text
+python3 tools/warning_diff.py STANC3_DIR STANC       # warning text
 python3 tools/format_diff.py STANC3_DIR STANC        # format against stanc --auto-format
 python3 tools/cmdstan_diff.py CMDSTAN_DIR WORK_DIR   # fixture densities against CmdStan
 ```
@@ -56,19 +60,26 @@ for more inputs than Stan Math evaluates, stanc-rs evaluates them:
 
 ## Diagnostics
 
-Every `bad` program is rejected, and the reported line always agrees with stanc3. The text of
-the messages differs:
+Every `bad` program is rejected, and the reported line always agrees with stanc3. Messages are
+laid out as stanc3 lays them out: a header with the location, an excerpt of the source, and an
+explanation. `tools/message_diff.py` compares each part:
 
-* stanc3 reports a column range (`column 23 to column 37`); stanc-rs reports the start column
-  and underlines the whole span.
-* For ill-typed calls, stanc3 lists every available signature and explains the first mismatch;
-  stanc-rs prints the supplied types and the reason the closest signature fails.
-* stanc-rs labels lexer errors `Syntax error (lexical)`; stanc3 calls 18 of them plain
-  `Syntax error`.
+| Part of the message | Identical to stanc3 |
+| --- | --- |
+| Whole message | 98 of 1191 |
+| Header (category, file, line and column range, included-from chain) | 1113 of 1191 |
+| Source excerpt with the caret | 1117 of 1191 |
+| Explanation | 98 of 1191 (43 of 602 syntax errors, 55 of 589 semantic errors) |
 
-Warnings that stanc3 emits during type checking (deprecated `_lp` calls in transformed
-parameters, `_jacobian` calls without parameter arguments, unreachable statements,
-self-assignment in a declaration, and others) are emitted. stanc3's `--warn-pedantic` checks
+The explanations are where the two differ. stanc3 words syntax errors by parser state, from a
+table generated for its parser, which a hand-written parser cannot reproduce state by state.
+For ill-typed calls, stanc3 lists the available signatures and explains each mismatch;
+stanc-rs explains the closest one. Most header differences are calls to higher-order functions,
+where stanc3 points at the offending argument and stanc-rs at the whole call.
+
+Warnings are identical: `tools/warning_diff.py` finds warnings on 52 of the `good` programs, and
+the text agrees with stanc3's on all 52, including the expressions stanc3 prints in its int
+division, chained comparison, and matrix power warnings. stanc3's `--warn-pedantic` checks
 are not implemented.
 
 ## Numerical validation

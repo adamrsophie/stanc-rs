@@ -593,7 +593,7 @@ impl Checker {
             ExprKind::BinOp(l, op, r) => {
                 let tl = self.check_expr(ctx, l)?;
                 let tr = self.check_expr(ctx, r)?;
-                self.binop_warnings(&tl, *op, &tr, span);
+                self.binop_warnings(e, (l, &tl), *op, (r, &tr));
                 self.check_binop(span, *op, tl, tr)
             }
             ExprKind::PrefixOp(op, a) => {
@@ -968,15 +968,110 @@ impl Checker {
         }
     }
 
-    fn binop_warnings(&mut self, l: &TExpr, op: BinOp, r: &TExpr, span: Span) {
-        if l.ty == UnsizedType::Int && r.ty == UnsizedType::Int && op == BinOp::Divide {
-            self.warnings.push(Diagnostic::new(
-                DiagnosticKind::Warning,
-                l.span,
-                "Found int division. Values will be rounded towards zero. If rounding is intended please use the integer division operator %/%.",
-            ));
-        }
-        let _ = span;
+    /// stanc3's `binop_type_warnings` and its chained comparison warning.
+    fn binop_warnings(
+        &mut self,
+        whole: &Expr,
+        (l, tl): (&Expr, &TExpr),
+        op: BinOp,
+        (r, tr): (&Expr, &TExpr),
+    ) {
+        use UnsizedType as U;
+        use stanc_rs_syntax::autoformat::Message;
+        let is_cmp = |op: BinOp| {
+            use BinOp::*;
+            matches!(op, Equals | NEquals | Less | Leq | Greater | Geq)
+        };
+        let mut m = Message::new();
+        let span = match (&tl.ty, &tr.ty, op) {
+            (U::Int, U::Int, BinOp::Divide) => {
+                m.text("Found int division:")
+                    .indented(|m| {
+                        m.expr(whole);
+                    })
+                    .text(
+                        "Values will be rounded towards zero. If rounding is not desired you \
+                         can write the division as",
+                    )
+                    .indented(|m| match (&l.kind, &r.kind) {
+                        (ExprKind::IntNumeral(x), _) => {
+                            m.text(&format!("{x}.0 / ")).expr(r);
+                        }
+                        (_, ExprKind::IntNumeral(y)) => {
+                            m.expr(l).text(&format!(" / {y}.0"));
+                        }
+                        _ => {
+                            m.expr(l).text(" * 1.0 / ").expr(r);
+                        }
+                    })
+                    .text("If rounding is intended please use the integer division operator %/%.");
+                l.span
+            }
+            (U::Matrix, U::Int | U::Real, BinOp::Pow) => {
+                self.matrix_pow(&mut m, whole, l, r);
+                l.span
+            }
+            (U::Array(t), U::Int | U::Real, BinOp::Pow) if **t == U::Matrix => {
+                self.matrix_pow(&mut m, whole, l, r);
+                l.span
+            }
+            _ if is_cmp(op) => match &l.kind {
+                ExprKind::BinOp(e1, op2, e2) if is_cmp(*op2) => {
+                    let (s, s2) = (op.symbol(), op2.symbol());
+                    m.text("Found chained comparison")
+                        .indented(|m| {
+                            m.expr(whole);
+                        })
+                        .text("This is interpreted as")
+                        .indented(|m| {
+                            m.text("(").expr(l).text(&format!(") {s} ")).expr(r);
+                        })
+                        .text("Consider if the intended meaning was")
+                        .indented(|m| {
+                            m.expr(e1)
+                                .text(&format!(" {s2} "))
+                                .expr(e2)
+                                .text(" && ")
+                                .expr(e2)
+                                .text(&format!(" {s} "))
+                                .expr(r);
+                        })
+                        .text(
+                            "instead. You can silence this warning by adding explicit \
+                             parentheses. This can be automatically changed using the \
+                             canonicalize flag for stanc",
+                        );
+                    whole.span
+                }
+                _ => return,
+            },
+            _ => return,
+        };
+        self.warnings
+            .push(Diagnostic::new(DiagnosticKind::Warning, span, m.finish()));
+    }
+
+    fn matrix_pow(
+        &self,
+        m: &mut stanc_rs_syntax::autoformat::Message,
+        whole: &Expr,
+        l: &Expr,
+        r: &Expr,
+    ) {
+        m.text("Found matrix^scalar:")
+            .indented(|m| {
+                m.expr(whole);
+            })
+            .text(
+                "matrix ^ number is interpreted as element-wise exponentiation. If this is \
+                 intended, you can silence this warning by using elementwise operator .^",
+            )
+            .newline()
+            .text("If you intended matrix exponentiation, use")
+            .indented(|m| {
+                m.text("matrix_power(").expr(l).text(", ").expr(r).text(")");
+            })
+            .text("instead.");
     }
 
     fn check_funapp(
