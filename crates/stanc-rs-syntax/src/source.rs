@@ -395,6 +395,87 @@ impl Diagnostic {
     }
 }
 
+/// A JSON string literal.
+fn json_string(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+impl DiagnosticKind {
+    fn json_name(self) -> &'static str {
+        match self {
+            DiagnosticKind::Lexical => "lexing",
+            DiagnosticKind::Syntax => "parsing",
+            DiagnosticKind::Include => "include",
+            DiagnosticKind::Semantic => "semantic",
+            DiagnosticKind::Unsupported => "unsupported",
+            DiagnosticKind::Internal => "internal",
+            DiagnosticKind::Warning => "warning",
+        }
+    }
+}
+
+impl Diagnostic {
+    /// The diagnostic as a JSON object: `severity` (`error` or `warning`), `kind`, the
+    /// `message` without location, `file`, `begin` and `end` (one-based lines, zero-based byte
+    /// columns, as in the rendered header; absent without a location), `included_from` (the
+    /// chain of `#include` sites, innermost first), and the `rendered` text.
+    pub fn to_json(&self, sources: &SourceMap) -> String {
+        let mut out = String::from("{");
+        let _ = write!(
+            out,
+            "\"severity\": {}, \"kind\": {}, \"message\": {}",
+            json_string(if self.is_error() { "error" } else { "warning" }),
+            json_string(self.kind.json_name()),
+            json_string(&self.message)
+        );
+        let span = self
+            .span
+            .filter(|s| (s.file as usize) < sources.files.len());
+        if let Some(s) = span {
+            let f = &sources.files[s.file as usize];
+            let (l0, c0) = f.line_byte_col(s.start as usize);
+            let (l1, c1) = f.line_byte_col(s.end as usize);
+            let _ = write!(
+                out,
+                ", \"file\": {}, \"begin\": {{\"line\": {l0}, \"column\": {c0}}}, \"end\": {{\"line\": {l1}, \"column\": {c1}}}",
+                json_string(&f.name)
+            );
+            let mut chain = Vec::new();
+            let mut inc = f.included_from;
+            while let Some(i) = inc {
+                let g = &sources.files[i.file as usize];
+                let (l, c) = g.line_byte_col(i.start as usize);
+                chain.push(format!(
+                    "{{\"file\": {}, \"line\": {l}, \"column\": {c}}}",
+                    json_string(&g.name)
+                ));
+                inc = g.included_from;
+            }
+            let _ = write!(out, ", \"included_from\": [{}]", chain.join(", "));
+        }
+        let _ = write!(
+            out,
+            ", \"rendered\": {}}}",
+            json_string(&self.render(sources))
+        );
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

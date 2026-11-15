@@ -231,6 +231,45 @@ pub fn format_source(
     Ok((out, warnings))
 }
 
+/// Parses and type checks a program, and reports every diagnostic, warnings first, as a JSON
+/// object `{"ok": bool, "diagnostics": [...]}`; see [`syntax::Diagnostic::to_json`] for the
+/// fields of each diagnostic. `ok` is false when the program has an error.
+pub fn check_json(name: &str, text: &str, opts: &Options) -> (bool, String) {
+    let functions_only = name.ends_with(".stanfunctions");
+    let (diags, sources) = match stanc_rs_syntax::parse_with(
+        name,
+        text,
+        &FileIncludes::new(name, opts),
+        functions_only,
+    ) {
+        Err((d, sources)) => (vec![d], sources),
+        Ok((ast, sources)) => {
+            let copts = stanc_rs_semantic::CheckOptions {
+                allow_undefined: opts.allow_undefined,
+                model_name: opts
+                    .model_name
+                    .clone()
+                    .unwrap_or_else(|| default_model_name(name)),
+            };
+            let mut diags = parser_warnings(&ast, &sources);
+            match stanc_rs_semantic::check_program(&ast, &copts) {
+                Ok(c) => diags.extend(c.warnings),
+                Err(d) => diags.push(d),
+            }
+            (diags, sources)
+        }
+    };
+    let ok = !diags.iter().any(|d| d.is_error());
+    let items: Vec<String> = diags.iter().map(|d| d.to_json(&sources)).collect();
+    (
+        ok,
+        format!(
+            "{{\"ok\": {ok}, \"diagnostics\": [{}]}}\n",
+            items.join(", ")
+        ),
+    )
+}
+
 /// Parses, type checks, and translates a program to Rust.
 pub fn compile_source(name: &str, text: &str, opts: &Options) -> Result<Compiled, String> {
     let (ast, sources) = parse(name, text, opts)?;

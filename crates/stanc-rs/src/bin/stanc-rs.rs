@@ -23,6 +23,7 @@ OPTIONS:
     --canonicalize <list>     Rewrites for format: deprecations, parentheses, braces,
                               includes, strip-comments (comma-separated)
     --print-canonical         For format: --canonicalize deprecations,parentheses,braces,includes
+    --json-diagnostics        For check: print errors and warnings to stdout as JSON
     --help, -h                Print this message
     --version, -V             Print the version
 ";
@@ -32,7 +33,9 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(msg) => {
             // Rendered diagnostics end with a newline; other messages do not.
-            if msg.ends_with('\n') {
+            if msg.is_empty() {
+                // Already reported (JSON diagnostics).
+            } else if msg.ends_with('\n') {
                 eprint!("{msg}");
             } else {
                 eprintln!("{msg}");
@@ -50,6 +53,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
     let mut fopts = stanc_rs::syntax::autoformat::Options::default();
     let mut canon = stanc_rs::syntax::canonicalize::Settings::default();
     let mut print_canonical = false;
+    let mut json = false;
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
         let mut value = |flag: &str| it.next().ok_or_else(|| format!("missing value for {flag}"));
@@ -83,6 +87,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 canon.strip_comments |= v.strip_comments;
             }
             "--print-canonical" => print_canonical = true,
+            "--json-diagnostics" => json = true,
             "--max-line-length" => {
                 let v = value(&a)?;
                 fopts.line_length = v
@@ -107,6 +112,13 @@ fn run(args: Vec<String>) -> Result<(), String> {
     let text = std::fs::read_to_string(&file).map_err(|e| format!("cannot read '{file}': {e}"))?;
     let print_warnings = |ws: &[String]| ws.iter().for_each(|w| eprint!("{w}"));
     match cmd.as_str() {
+        "check" if json => {
+            let (ok, out) = stanc_rs::check_json(&file, &text, &opts);
+            print!("{out}");
+            if !ok {
+                return Err(String::new());
+            }
+        }
         "check" => {
             let c = stanc_rs::check_source(&file, &text, &opts)?;
             print_warnings(&c.warnings);

@@ -473,7 +473,7 @@ fn lex_file(
                     DiagnosticKind::Lexical,
                     start,
                     j,
-                    "Invalid character found: '#'.".into(),
+                    "Invalid character found.".into(),
                 ));
             }
             let (name, end) = if j < b.len() && (b[j] == b'"' || b[j] == b'<') {
@@ -668,7 +668,7 @@ fn lex_file(
             DiagnosticKind::Lexical,
             start,
             start + ch.len_utf8(),
-            format!("Invalid character found: '{ch}'."),
+            "Invalid character found.".to_string(),
         ));
     }
     Ok(())
