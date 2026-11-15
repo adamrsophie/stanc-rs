@@ -792,3 +792,141 @@ fn structural_functions() {
         assert_close(*o, e, 1e-14);
     }
 }
+
+/// log |det A| by Gaussian elimination with partial pivoting.
+fn log_abs_det(mut a: Vec<Vec<f64>>) -> f64 {
+    let n = a.len();
+    let mut s = 0.0;
+    for c in 0..n {
+        let p = (c..n)
+            .max_by(|&i, &j| a[i][c].abs().total_cmp(&a[j][c].abs()))
+            .unwrap();
+        a.swap(c, p);
+        s += a[c][c].abs().ln();
+        for r in c + 1..n {
+            let f = a[r][c] / a[c][c];
+            for k in c..n {
+                a[r][k] -= f * a[c][k];
+            }
+        }
+    }
+    s
+}
+
+/// log |det| of the central-difference Jacobian of constrained outputs `outs` with respect to
+/// unconstrained coordinates `ins`.
+fn fd_log_jacobian(m: &dyn Model, theta: &[f64], ins: &[usize], outs: &[usize]) -> f64 {
+    let h = 1e-6;
+    let mut jac = vec![vec![0.0; ins.len()]; outs.len()];
+    for (j, &i) in ins.iter().enumerate() {
+        let (mut up, mut down) = (theta.to_vec(), theta.to_vec());
+        up[i] += h;
+        down[i] -= h;
+        let fu = m.write_array(&up, false, false, &mut rng()).unwrap();
+        let fd = m.write_array(&down, false, false, &mut rng()).unwrap();
+        for (r, &o) in outs.iter().enumerate() {
+            jac[r][j] = (fu[o] - fd[o]) / (2.0 * h);
+        }
+    }
+    log_abs_det(jac)
+}
+
+// The remaining constraint transforms: values satisfy their constraints, unconstraining inverts
+// constraining, and the Jacobian adjustment matches finite differences over the free
+// coordinates (or the closed form where Stan uses one that is not a determinant).
+#[test]
+fn constraint_transforms() {
+    let (mu, tau) = (1.5, 0.5);
+    let m = fx::constraints::Model::new(&data(r#"{"mu": 1.5, "tau": 0.5}"#), 0).unwrap();
+    assert_eq!(m.num_unconstrained(), 3 + 3 + 2 + 1 + 3 + 1 + 5 + 2 + 4);
+    // The unit vector part is already of norm one, so it survives a round trip.
+    let theta = [
+        0.2, -0.4, 0.1, 0.6, 0.0, 0.8, 0.3, -0.7, 0.9, 0.2, -0.3, 0.4, 0.5, -0.2, 0.1, 0.3, 0.4,
+        -0.6, 0.25, -0.5, 0.1, 0.2, -0.3, 0.4,
+    ];
+    let o = m.write_array(&theta, false, false, &mut rng()).unwrap();
+    assert_eq!(o.len(), 34);
+    // positive_ordered
+    assert!(0.0 < o[0] && o[0] < o[1] && o[1] < o[2]);
+    // unit_vector
+    assert_close(o[3] * o[3] + o[4] * o[4] + o[5] * o[5], 1.0, 1e-14);
+    // sum_to_zero_vector
+    assert_close(o[6] + o[7] + o[8], 0.0, 1e-14);
+    // offset and multiplier
+    assert_close(o[9], mu + tau * theta[8], 1e-14);
+    // cov_matrix, column major
+    assert_close(o[11], o[12], 1e-14);
+    assert!(o[10] > 0.0 && o[10] * o[13] - o[11] * o[12] > 0.0);
+    // corr_matrix
+    assert_close(o[14], 1.0, 1e-14);
+    assert_close(o[17], 1.0, 1e-14);
+    assert_close(o[15], o[16], 1e-14);
+    assert!(o[15].abs() < 1.0);
+    // cholesky_factor_cov[3, 2]: L[1, 2] is zero and the diagonal is positive
+    assert_eq!(o[21], 0.0);
+    assert!(o[18] > 0.0 && o[22] > 0.0);
+    // column_stochastic_matrix[2, 2] and row_stochastic_matrix[2, 3]
+    assert_close(o[24] + o[25], 1.0, 1e-14);
+    assert_close(o[26] + o[27], 1.0, 1e-14);
+    assert_close(o[28] + o[30] + o[32], 1.0, 1e-14);
+    assert_close(o[29] + o[31] + o[33], 1.0, 1e-14);
+    assert!(o[24..34].iter().all(|v| *v > 0.0));
+
+    let names = ["po", "uv", "sz", "om", "S", "R", "L", "C", "Q"];
+    let shapes: [&[usize]; 9] = [
+        &[3],
+        &[3],
+        &[3],
+        &[],
+        &[2, 2],
+        &[2, 2],
+        &[3, 2],
+        &[2, 2],
+        &[2, 3],
+    ];
+    let mut json = String::from("{");
+    let mut at = 0;
+    for (k, (n, sh)) in names.iter().zip(shapes).enumerate() {
+        let len: usize = sh.iter().product();
+        let vals = &o[at..at + len];
+        at += len;
+        // Column-major output to nested JSON arrays.
+        let v = match sh {
+            [] => format!("{}", vals[0]),
+            [_] => format!("{vals:?}"),
+            [r, c] => {
+                let rows: Vec<String> = (0..*r)
+                    .map(|i| format!("{:?}", (0..*c).map(|j| vals[i + j * r]).collect::<Vec<_>>()))
+                    .collect();
+                format!("[{}]", rows.join(", "))
+            }
+            _ => unreachable!(),
+        };
+        if k > 0 {
+            json.push_str(", ");
+        }
+        json.push_str(&format!("\"{n}\": {v}"));
+    }
+    json.push('}');
+    let back = m.unconstrain(&data(&json)).unwrap();
+    for (a, b) in back.iter().zip(&theta) {
+        assert_close(*a, *b, 1e-10);
+    }
+
+    let jac = m.log_density(&theta, FULL).unwrap() - m.log_density(&theta, NO_JAC).unwrap();
+    let fd = |ins: std::ops::Range<usize>, outs: &[usize]| {
+        fd_log_jacobian(&m, &theta, &ins.collect::<Vec<_>>(), outs)
+    };
+    let expected = fd(0..3, &[0, 1, 2])
+        // unit_vector: Stan adds the standard normal kernel of the unconstrained vector.
+        - 0.5 * (theta[3] * theta[3] + theta[4] * theta[4] + theta[5] * theta[5])
+        // sum_to_zero_vector: the isometric transform has no adjustment.
+        + tau.ln()
+        + fd(9..12, &[10, 11, 13])
+        + fd(12..13, &[15])
+        + fd(13..18, &[18, 19, 20, 22, 23])
+        + fd(18..20, &[24, 26])
+        + fd(20..24, &[28, 29, 30, 31]);
+    assert_close(jac, expected, 1e-6);
+    check_gradient(&m, &theta, FULL);
+}
