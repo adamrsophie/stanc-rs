@@ -245,7 +245,11 @@ pub fn check_program(p: &Program, opts: &CheckOptions) -> Result<Checked, Diagno
     c.verify_second_order(&out.functions)?;
     Ok(Checked {
         program: out,
-        warnings: c.warnings,
+        warnings: {
+            let mut w = c.warnings;
+            w.extend(crate::deprecation::warnings(p));
+            w
+        },
     })
 }
 
@@ -1037,7 +1041,15 @@ impl Checker {
                 );
             }
             if !args.iter().any(|a| a.ad.has_autodiff()) {
-                self.warnings.push(Diagnostic::new(DiagnosticKind::Warning, span, "Calling a _jacobian function without any parameter arguments still applies the Jacobian adjustments, ensure this is intentional!"));
+                let mut msg = String::from(
+                    "Calling a _jacobian function without any parameter arguments still applies the Jacobian adjustments, ensure this is intentional!",
+                );
+                let alt = format!("{}_constrain", name.trim_end_matches("_jacobian"));
+                if !self.function_candidates(&alt).is_empty() || !self.env.find(&alt).is_empty() {
+                    msg.push_str(&format!(" Consider using {alt} instead."));
+                }
+                self.warnings
+                    .push(Diagnostic::new(DiagnosticKind::Warning, span, msg));
             }
         }
         Ok(())
@@ -2523,6 +2535,18 @@ impl Checker {
         let tr = self.check_expr(ctx, rhs)?;
         let rhs = match op {
             AssignOp::Assign => {
+                // stanc3 warns when the right side, without outer parentheses, is the left side.
+                let mut bare = rhs;
+                while let ExprKind::Paren(e) = &bare.kind {
+                    bare = e;
+                }
+                if stanc_rs_syntax::pretty::lvalue_str(lhs) == stanc_rs_syntax::pretty::expr(bare) {
+                    self.warnings.push(Diagnostic::new(
+                        DiagnosticKind::Warning,
+                        span,
+                        "Assignment of variable to itself.",
+                    ));
+                }
                 let p = assign_promotion(&tl, &tr).ok_or_else(|| {
                     Diagnostic::new(
                         DiagnosticKind::Semantic,

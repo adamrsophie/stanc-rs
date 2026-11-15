@@ -4,6 +4,7 @@
 #![allow(missing_docs)]
 
 pub mod check;
+mod deprecation;
 pub mod signatures;
 pub mod typed;
 pub mod types;

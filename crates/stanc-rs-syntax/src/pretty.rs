@@ -150,6 +150,13 @@ fn indices(out: &mut String, idx: &[Index]) {
     out.push(']');
 }
 
+/// Renders an assignable expression.
+pub fn lvalue_str(l: &LValue) -> String {
+    let mut out = String::new();
+    lvalue(&mut out, l);
+    out
+}
+
 fn lvalue(out: &mut String, l: &LValue) {
     match &l.kind {
         LValueKind::Variable(id) => out.push_str(&id.name),

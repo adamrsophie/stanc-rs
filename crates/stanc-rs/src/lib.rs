@@ -128,6 +128,20 @@ pub fn parse(name: &str, text: &str, opts: &Options) -> Result<(Program, SourceM
         .map_err(|(d, sources)| d.render(&sources))
 }
 
+/// Warnings stanc3 issues while parsing: only the one for a program without blocks.
+fn parser_warnings(ast: &Program, sources: &SourceMap) -> Vec<stanc_rs_syntax::Diagnostic> {
+    if ast.blocks().iter().all(|(_, b)| b.is_none()) {
+        let end = sources.files[0].text.len();
+        vec![stanc_rs_syntax::Diagnostic::new(
+            stanc_rs_syntax::DiagnosticKind::Warning,
+            stanc_rs_syntax::Span::new(0, 0, end),
+            "Empty model detected; this is a valid Stan model but likely unintended!",
+        )]
+    } else {
+        Vec::new()
+    }
+}
+
 /// Parses and type checks a program.
 pub fn check_source(name: &str, text: &str, opts: &Options) -> Result<Checked, String> {
     let (ast, sources) = parse(name, text, opts)?;
@@ -140,9 +154,9 @@ pub fn check_source(name: &str, text: &str, opts: &Options) -> Result<Checked, S
         model_name,
     };
     let checked = stanc_rs_semantic::check_program(&ast, &copts).map_err(|d| d.render(&sources))?;
-    let warnings = checked
-        .warnings
+    let warnings = parser_warnings(&ast, &sources)
         .iter()
+        .chain(&checked.warnings)
         .map(|w| w.render(&sources))
         .collect();
     let included_files = sources.files[1..].iter().map(|f| f.name.clone()).collect();
@@ -166,9 +180,9 @@ pub fn compile_source(name: &str, text: &str, opts: &Options) -> Result<Compiled
         model_name,
     };
     let checked = stanc_rs_semantic::check_program(&ast, &copts).map_err(|d| d.render(&sources))?;
-    let warnings = checked
-        .warnings
+    let warnings = parser_warnings(&ast, &sources)
         .iter()
+        .chain(&checked.warnings)
         .map(|w| w.render(&sources))
         .collect();
     let rust = stanc_rs_codegen::generate(&checked.program).map_err(|d| d.render(&sources))?;

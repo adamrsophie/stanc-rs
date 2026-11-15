@@ -76,7 +76,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         return Err(USAGE.to_string());
     };
     let text = std::fs::read_to_string(&file).map_err(|e| format!("cannot read '{file}': {e}"))?;
-    let print_warnings = |ws: &[String]| ws.iter().for_each(|w| eprintln!("{w}"));
+    let print_warnings = |ws: &[String]| ws.iter().for_each(|w| eprint!("{w}"));
     match cmd.as_str() {
         "check" => {
             let c = stanc_rs::check_source(&file, &text, &opts)?;
