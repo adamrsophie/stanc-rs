@@ -538,35 +538,78 @@ pub fn select(mut errs: Vec<(Sig, Mismatch)>) -> (Vec<(Sig, Mismatch)>, bool) {
 
 /// stanc3's `pp_mismatch_details` for an argument list mismatch, with no skipped arguments.
 pub fn input_mismatch(e: &Mismatch) -> String {
+    details_msg("", &Details::Input(Box::new(e.clone())), &[], "")
+}
+
+/// stanc3's `pp_mismatch_details ~skipped`, printed between the format strings `before` and
+/// `after`. Argument positions count from after the `skipped` arguments.
+pub fn details_msg(before: &str, d: &Details, skipped: &[&str], after: &str) -> String {
     let mut p = P {
         f: Formatter::new(),
         names: Names::default(),
     };
-    match e {
-        Mismatch::ArgCount(x, y) => p.f.pf(&format!(
-            "@[<hov>Expected {x} {}@ but got {y} {}.@]",
-            arguments(*x),
-            arguments(*y)
-        )),
-        Mismatch::Arg(n, inner) => {
-            let idx = index_str(*n);
-            match &**inner {
-                Mismatch::DataOnly => {
-                    p.f.pf(&format!("@[<hov>The@ {idx} argument is marked data-only. "));
-                    p.data_only_msg();
-                    p.f.close();
-                }
-                Mismatch::Type(x, y, _) => p.with_where(|p| {
-                    p.f.pf(&format!("@[<hov>The {idx} argument must be@ "));
-                    p.ty(x);
-                    p.f.pf(" but got@ ");
-                    p.ty(y);
-                    p.f.pf(".@]");
-                }),
-                _ => {}
-            }
+    p.f.pf(before);
+    let n_skipped = skipped.len();
+    let excluded = if n_skipped > 0 {
+        format!(
+            " (excluding the {} {})",
+            skipped.join(", "),
+            arguments(n_skipped)
+        )
+    } else {
+        String::new()
+    };
+    let ret = |t: &Option<UnsizedType>| match t {
+        Some(t) => {
+            let mut f = Formatter::new();
+            pp_plain(&mut f, t);
+            f.finish()
         }
-        _ => {}
+        None => "void".to_string(),
+    };
+    match d {
+        Details::Suffix(x, y) => p.f.pf(&format!(
+            "@[<hov>Expected {} but got {}.@]",
+            suffix_str(*x),
+            suffix_str(*y)
+        )),
+        Details::ReturnType(x, y) => p.f.pf(&format!(
+            "@[<hov>Expected function returning {} but got function returning {}.@]",
+            ret(x),
+            ret(y)
+        )),
+        Details::Input(e) => match &**e {
+            Mismatch::ArgCount(x, y) => {
+                let (x, y) = (x - n_skipped, y - n_skipped);
+                p.f.pf(&format!(
+                    "@[<hov>Expected {x} {}{excluded}@ but got {y} {}.@]",
+                    arguments(x),
+                    arguments(y)
+                ))
+            }
+            Mismatch::Arg(n, inner) => {
+                let idx = index_str(n - n_skipped);
+                match &**inner {
+                    Mismatch::DataOnly => {
+                        p.f.pf(&format!(
+                            "@[<hov>The@ {idx} argument{excluded} is marked data-only. "
+                        ));
+                        p.data_only_msg();
+                        p.f.close();
+                    }
+                    Mismatch::Type(x, y, _) => p.with_where(|p| {
+                        p.f.pf(&format!("@[<hov>The {idx} argument{excluded} must be@ "));
+                        p.ty(x);
+                        p.f.pf(" but got@ ");
+                        p.ty(y);
+                        p.f.pf(".@]");
+                    }),
+                    _ => {}
+                }
+            }
+            _ => {}
+        },
     }
+    p.f.pf(after);
     p.f.finish()
 }

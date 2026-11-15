@@ -1561,7 +1561,10 @@ impl Checker {
             }
             _ => err(
                 te.span,
-                format!("{what} must be a tuple. Instead found type {}.", te.ty),
+                format!(
+                    "@[{what} must be a tuple.@ Instead found type {}.@]",
+                    ty(&te.ty)
+                ),
             ),
         }
     }
@@ -1573,6 +1576,7 @@ impl Checker {
         caller: &Ident,
         fname: &Ident,
         required: &[(AdLevel, UnsizedType)],
+        skipped: &[&str],
         tupl: TExpr,
         ret: UnsizedType,
     ) -> R<(TExpr, TExpr)> {
@@ -1592,8 +1596,8 @@ impl Checker {
                 Some(_) => err(
                     fname.span,
                     format!(
-                        "A returning function was expected but a non-function value '{}' was supplied.",
-                        fname.name
+                        "A returning function was expected but a non-function value {} was supplied.",
+                        q(&fname.name)
                     ),
                 ),
                 None => err(
@@ -1607,18 +1611,16 @@ impl Checker {
             };
         }
         let mut best: Vec<(usize, FunctionType, Vec<Promotion>)> = Vec::new();
-        let mut fn_err = None;
-        let mut arg_err = None;
+        // stanc3 reports the first candidate's error: a requirement of the function itself, or
+        // a mismatch with the forwarded arguments.
+        let mut errs: Vec<Result<Details, Mismatch>> = Vec::new();
         for ft in cands {
             if ft.ret.as_ref() != Some(&ret) {
-                fn_err.get_or_insert(format!("its return type must be {ret}"));
+                errs.push(Ok(Details::ReturnType(Some(ret.clone()), ft.ret.clone())));
                 continue;
             }
             if ft.suffix != FnSuffix::Plain {
-                fn_err.get_or_insert(
-                    "it must be a plain function (no _lpdf, _rng, _lp, or _jacobian suffix)"
-                        .to_string(),
-                );
+                errs.push(Ok(Details::Suffix(FnSuffix::Plain, ft.suffix)));
                 continue;
             }
             let n = required.len().min(ft.args.len());
@@ -1626,17 +1628,10 @@ impl Checker {
                 .iter()
                 .map(|(a, t)| ((*a).into(), t.clone()))
                 .collect();
-            if check_compatible_args(1, required, &head).is_err()
-                || check_compatible_args(1, &ft.args[..n], &req_ad).is_err()
+            if let Err(e) = check_compatible_args(1, required, &head)
+                .and_then(|_| check_compatible_args(1, &ft.args[..n], &req_ad))
             {
-                fn_err.get_or_insert(format!(
-                    "its leading arguments must be ({})",
-                    required
-                        .iter()
-                        .map(|(_, t)| t.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ));
+                errs.push(Ok(Details::Input(Box::new(e))));
                 continue;
             }
             match check_compatible_args(0, &ft.args, &all) {
@@ -1644,32 +1639,38 @@ impl Checker {
                     let c = ps.iter().map(Promotion::cost).sum();
                     best.push((c, ft, ps));
                 }
-                Err(e) => {
-                    arg_err.get_or_insert(e);
-                }
+                Err(e) => errs.push(Err(e)),
             }
         }
         let Some(min) = best.iter().map(|b| b.0).min() else {
-            if let Some(e) = arg_err {
-                return err(
-                    tupl.span,
-                    format!(
-                        "Function '{}' cannot be called with the arguments forwarded by '{}': {}",
-                        fname.name,
-                        caller.name,
-                        mismatch::input_mismatch(&e)
+            return match errs.into_iter().next().expect("a candidate") {
+                Ok(d) => err(
+                    fname.span,
+                    mismatch::details_msg(
+                        &format!(
+                            "Function {} does not have a valid signature for use in {}:@ ",
+                            q(&fname.name),
+                            q(&caller.name)
+                        ),
+                        &d,
+                        &[],
+                        "",
                     ),
-                );
-            }
-            return err(
-                fname.span,
-                format!(
-                    "Function '{}' does not have a valid signature for use in '{}': {}.",
-                    fname.name,
-                    caller.name,
-                    fn_err.unwrap_or_default()
                 ),
-            );
+                Err(e) => err(
+                    tupl.span,
+                    mismatch::details_msg(
+                        &format!(
+                            "Cannot call {}@ with arguments forwarded from call to@ {}:@ ",
+                            q(&fname.name),
+                            q(&caller.name)
+                        ),
+                        &Details::Input(Box::new(e)),
+                        skipped,
+                        "",
+                    ),
+                ),
+            };
         };
         let mut best: Vec<_> = best.into_iter().filter(|b| b.0 == min).collect();
         if best.len() > 1 {
@@ -1697,14 +1698,19 @@ impl Checker {
     fn check_laplace(&mut self, span: Span, id: &Ident, tes: Vec<TExpr>, cond: bool) -> R<TExpr> {
         let name = signatures::normalized_name(&id.name);
         let latent_solve = name.contains("_solve");
-        let generic = |span: Span| -> R<TExpr> {
-            err(
-                span,
+        let supplied = arg_types(&tes);
+        let helper = signatures::laplace_helper_param_types(&name);
+        let generic = |early: bool| -> R<TExpr> {
+            let info = if early {
+                "We were unable to start more in-depth checking. Please ensure you are passing enough arguments and that the first argument is a function.".replace(' ', "@ ")
+            } else {
+                let n = if helper.is_empty() { 2 } else { helper.len() } + 1;
                 format!(
-                    "Ill-typed arguments supplied to function '{}'. See the Stan documentation for its signatures.",
-                    id.name
-                ),
-            )
+                    "Typechecking failed after checking the first {n} arguments.@ Please ensure you are passing enough arguments and that the {} is a function.",
+                    ordinal(n + 1)
+                )
+            };
+            err(span, laplace_usage(&id.name, &info, &supplied))
         };
         let latent_solve_err = |e: &TExpr| -> R<TExpr> {
             let loc = match &e.kind {
@@ -1718,12 +1724,12 @@ impl Checker {
             err(
                 loc,
                 format!(
-                    "The arguments forwarded by '{}' must be data only.",
-                    id.name
+                    "@[<hov>All arguments to {} must be a data-only@ if used outside the generated quantities@ block.@ {}@]",
+                    q(&id.name),
+                    data_only_fmt()
                 ),
             )
         };
-        let helper = signatures::laplace_helper_param_types(&name);
         let mut it: std::collections::VecDeque<TExpr> = tes.into();
         let mut args: Vec<TExpr> = Vec::new();
         if !helper.is_empty() {
@@ -1732,16 +1738,20 @@ impl Checker {
             match check_compatible_args(0, &helper, &arg_types(&for_prob)) {
                 Ok(ps) => args.extend(for_prob.into_iter().zip(&ps).map(|(e, p)| promote(e, p))),
                 Err(e) => {
-                    let loc = match &e {
-                        Mismatch::Arg(i, _) => for_prob.get(i - 1).map(|x| x.span).unwrap_or(span),
-                        _ => for_prob.last().map(|x| x.span).unwrap_or(span),
-                    };
+                    let loc = specialize_span(span, &e, &for_prob);
                     return err(
                         loc,
-                        format!(
-                            "Ill-typed arguments supplied to the likelihood of '{}': {}",
-                            id.name,
-                            mismatch::input_mismatch(&e)
+                        mismatch::details_msg(
+                            &format!(
+                                "@[<v>Ill-typed arguments supplied to function {}@ for the likelihood:@ ",
+                                q(&id.name)
+                            ),
+                            &Details::Input(Box::new(e)),
+                            &[],
+                            &format!(
+                                "@ Expected the arguments to start with:@ @[({})@]@]",
+                                fun_args(&ads(&helper))
+                            ),
                         ),
                     );
                 }
@@ -1768,13 +1778,14 @@ impl Checker {
                         id,
                         &fid,
                         &[(AdLevel::AutoDiffable, UnsizedType::Vector)],
+                        &["latent gaussian vector"],
                         tupl,
                         UnsizedType::Real,
                     )?;
                     args.push(f);
                     args.push(t);
                 }
-                _ => return generic(span),
+                _ => return generic(true),
             }
         }
         // Hessian block size.
@@ -1784,8 +1795,14 @@ impl Checker {
                 return err(
                     h.span,
                     format!(
-                        "The hessian block size argument of '{}' must be a data-only int. Instead found {}.",
-                        id.name, h.ty
+                        "@[<hov>The hessian block size argument to {} must be a data-only int.@ Instead found type {}.{}@]",
+                        q(&id.name),
+                        ty(&h.ty),
+                        if h.ad.has_autodiff() {
+                            format!("@ {}", data_only_fmt())
+                        } else {
+                            String::new()
+                        }
                     ),
                 );
             }
@@ -1799,9 +1816,10 @@ impl Checker {
                     .unwrap_or(span);
                 return err(
                     loc,
-                    format!(
-                        "'{}' requires a hessian block size argument of type int.",
-                        id.name
+                    laplace_usage(
+                        &id.name,
+                        "@[<hov>Missing the hessian block size (data-only int) and remaining arguments.@]",
+                        &[],
                     ),
                 );
             }
@@ -1823,11 +1841,11 @@ impl Checker {
                     span: fspan,
                 };
                 let (f, t) =
-                    self.check_callable_with_tuple(id, &fid, &[], tupl, UnsizedType::Matrix)?;
+                    self.check_callable_with_tuple(id, &fid, &[], &[], tupl, UnsizedType::Matrix)?;
                 args.push(f);
                 args.push(t);
             }
-            _ => return generic(span),
+            _ => return generic(false),
         }
         let control: Vec<TExpr> = it.into_iter().collect();
         let tol = id.name.contains("_tol");
@@ -1839,50 +1857,25 @@ impl Checker {
                 if let Err(e) =
                     check_compatible_args(0, &signatures::laplace_tolerance_argument_types(), &tys)
                 {
-                    let loc = match (&e, &t.kind) {
-                        (Mismatch::Arg(i, _), TExprKind::TupleExpr(es)) => {
-                            es.get(i - 1).map(|x| x.span).unwrap_or(t.span)
-                        }
-                        _ => t.span,
+                    let elts = match &t.kind {
+                        TExprKind::TupleExpr(es) => es.as_slice(),
+                        _ => &[],
                     };
                     return err(
-                        loc,
-                        format!(
-                            "Ill-typed tolerance arguments supplied to '{}': {}",
-                            id.name,
-                            mismatch::input_mismatch(&e)
-                        ),
+                        specialize_span(t.span, &e, elts),
+                        laplace_tol_error(&id.name, &e),
                     );
                 }
             }
             (true, []) => {
-                return err(
-                    span,
-                    format!(
-                        "'{}' requires a tuple of tolerance arguments (vector, real, int, int, int, int).",
-                        id.name
-                    ),
-                );
+                let n = signatures::laplace_tolerance_argument_types().len();
+                return err(span, laplace_tol_error(&id.name, &Mismatch::ArgCount(n, 0)));
             }
             (true, [_, a, ..]) => {
-                return err(
-                    a.span,
-                    format!(
-                        "'{}' received {} unexpected extra arguments.",
-                        id.name,
-                        control.len() - 1
-                    ),
-                );
+                return err(a.span, laplace_too_many(&id.name, control.len() - 1));
             }
             (false, [a, ..]) => {
-                return err(
-                    a.span,
-                    format!(
-                        "'{}' received {} unexpected extra arguments.",
-                        id.name,
-                        control.len()
-                    ),
-                );
+                return err(a.span, laplace_too_many(&id.name, control.len()));
             }
         }
         args.extend(control);
@@ -1937,7 +1930,8 @@ impl Checker {
                         return err(
                             use_span,
                             format!(
-                                "The function '{name}' is used in an embedded Laplace approximation, but it calls '{c}', which does not support higher-order derivatives."
+                                "The function {}, called by this likelihood function,@ does not currently support higher-order derivatives, and@ cannot be used in an embedded Laplace approximation.",
+                                q(&c)
                             ),
                         );
                     }
@@ -2770,8 +2764,9 @@ impl Checker {
         for suf in ["_lpmf", "_lpdf"] {
             let fname = format!("{n}{suf}");
             if signatures::is_laplace(&fname) {
+                // stanc3 checks the unnormalized form, and names it in errors.
                 let fid = Ident {
-                    name: fname.clone(),
+                    name: format!("{n}{}", suf.replace("_lp", "_lup")),
                     span: dist.span,
                 };
                 let app = self.check_laplace(span, &fid, all, true)?;
@@ -4010,6 +4005,114 @@ fn fun_args(args: &[(Ad, UnsizedType)]) -> String {
         })
         .collect::<Vec<_>>()
         .join(",@ ")
+}
+
+fn ads(args: &[(AdLevel, UnsizedType)]) -> Vec<(Ad, UnsizedType)> {
+    args.iter().map(|(a, t)| ((*a).into(), t.clone())).collect()
+}
+
+/// `SignatureMismatch.data_only_msg` as a format string.
+fn data_only_fmt() -> String {
+    "(Local variables are assumed to depend on parameters; same goes for function inputs unless they are marked with the keyword \"data\".)"
+        .replace(' ', "@ ")
+}
+
+/// `Fmt.ordinal`.
+fn ordinal(n: usize) -> String {
+    let s = match (n % 10, n % 100) {
+        (1, x) if x != 11 => "st",
+        (2, x) if x != 12 => "nd",
+        (3, x) if x != 13 => "rd",
+        _ => "th",
+    };
+    format!("{n}{s}")
+}
+
+/// stanc3's `generic_laplace_usage`.
+fn laplace_usage(name: &str, info: &str, supplied: &[(Ad, UnsizedType)]) -> String {
+    let req = signatures::laplace_helper_param_types(name);
+    let lik = if req.is_empty() {
+        "(vector, T_l...) => real,@ tuple(T_l...)".to_string()
+    } else {
+        fun_args(&ads(&req))
+    };
+    let tols = if name.contains("_tol") {
+        format!(
+            ", {}",
+            fun_args(&ads(&signatures::laplace_tolerance_argument_types()))
+        )
+    } else {
+        String::new()
+    };
+    let sup = if supplied.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "@ However, we received the types:@ @[<hov 2>({})@]",
+            fun_args(supplied)
+        )
+    };
+    format!(
+        "@[<v>Ill-typed arguments supplied to function {}.@ The valid signature of this function is@ @[<hov 2>{name}({lik},@ data int,@ (T_k...) => matrix,@ tuple(T_k...){tols})@]{sup}@ @[{info}@]@]",
+        q(name)
+    )
+}
+
+/// stanc3's `IlltypedLaplaceTooMany`.
+fn laplace_too_many(name: &str, n: usize) -> String {
+    format!(
+        "Received {n} extra {} at the end of the call to {}.@ {}",
+        if n == 1 { "argument" } else { "arguments" },
+        q(name),
+        if name.contains("_tol") {
+            "Only a single tuple of control parameters is expected."
+        } else if n == 1 {
+            "Did you mean to call the _tol version?"
+        } else {
+            "Did you mean to call the _tol version with a tuple of these?"
+        }
+    )
+}
+
+/// stanc3's `IlltypedLaplaceTolArgs`.
+fn laplace_tol_error(name: &str, e: &Mismatch) -> String {
+    let n_tols = signatures::laplace_tolerance_argument_types().len();
+    let arg_name = |n: usize| match n {
+        1 => "first element of the control parameter tuple (initial guess)".to_string(),
+        2 => "second element of the control parameter tuple (tolerance)".to_string(),
+        3 => "third element of the control parameter tuple (max_num_steps)".to_string(),
+        4 => "fourth element of the control parameter tuple (solver)".to_string(),
+        5 => "fifth element of the control parameter tuple (max_steps_line_search)".to_string(),
+        6 => "sixth element of the control parameter tuple (allow_fallthrough)".to_string(),
+        n => format!("{} element of the control parameter tuple", ordinal(n)),
+    };
+    match e {
+        Mismatch::ArgCount(_, 0) => format!(
+            "Missing control parameter tuple at the end of the call to {}.@ Expected a tuple of {n_tols} arguments for the control parameters.",
+            q(name)
+        ),
+        Mismatch::ArgCount(_, found) => format!(
+            "@[<v>Received a tuple of {found} control {} at the end of the call to {}.@ Expected tuple of {n_tols} arguments for the control parameters instead.@]",
+            if *found == 1 { "argument" } else { "arguments" },
+            q(name)
+        ),
+        Mismatch::Arg(n, inner) => match &**inner {
+            Mismatch::Type(expected, found, _) => format!(
+                "@[<hov>The {} to {}@ must be@ {}.@ Instead found type {}.@]",
+                arg_name(*n),
+                q(name),
+                ty(expected),
+                ty(found)
+            ),
+            _ => format!(
+                "@[<hov>The control parameters to {}@ must all be data-only,@ but the {} here is not.@ {}@]",
+                q(name),
+                arg_name(*n),
+                data_only_fmt()
+            ),
+        },
+        _ => String::new(),
+    }
 }
 
 /// stanc3's `pretty_print_math_lib_operator_sigs`, joined by new lines: each implementing
