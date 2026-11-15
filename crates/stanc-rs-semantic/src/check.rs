@@ -1146,6 +1146,13 @@ impl Checker {
                 // Library random draws are data, whatever their arguments.
                 let ad = if kind == FunKind::StanLib && id.name.ends_with("_rng") {
                     Ad::DataOnly.fill_for(&ty)
+                } else if kind == FunKind::UserDefined
+                    && (id.name.ends_with("_lp") || id.name.ends_with("_jacobian"))
+                    && !is_discrete(&ty)
+                {
+                    // These read the target, so their values are on its level, as in stanc3's
+                    // C++, whose return type includes the target's type.
+                    Ad::AutoDiffable.fill_for(&ty)
                 } else {
                     fun_app_ad(&ty, &args)
                 };

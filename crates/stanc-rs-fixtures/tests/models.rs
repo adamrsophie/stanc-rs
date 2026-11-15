@@ -725,13 +725,18 @@ fn data_assigned_to_parameter_variables() {
 fn dependent_bounds_and_lp_tilde() {
     let m = fx::dependent_bounds::Model::new(&data("{}"), 0).unwrap();
     let back = m.unconstrain(&data(r#"{"a": 0.25, "b": 0.5}"#)).unwrap();
-    let out = m.write_array(&back, false, false, &mut rng()).unwrap();
-    assert_close(out[0], 0.25, 1e-14);
-    assert_close(out[1], 0.5, 1e-14);
+    let out = m.write_array(&back, true, false, &mut rng()).unwrap();
+    for (o, e) in out.iter().zip([0.25, 0.5, 0.75, 6.0, 1.0]) {
+        assert_close(*o, e, 1e-14);
+    }
     // Dropping constants removes the normal normalizers of both `~` statements.
     let full = m.log_density(&back, FULL).unwrap();
     let propto = m.log_density(&back, PROPTO).unwrap();
     assert_close(full - propto, -LN_2PI, 1e-12);
+    // Without Jacobians: the two normal priors and the -3 from `shift_lp` called on data, but not
+    // the 0.5 from `twice_jacobian`.
+    let no_jac = m.log_density(&back, NO_JAC).unwrap();
+    assert_close(no_jac, -LN_2PI - 0.5 * (0.0625 + 0.25) - 3.0, 1e-12);
 }
 
 // Bounds that are arrays give each element its own bound.
