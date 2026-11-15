@@ -3,21 +3,26 @@
 
 Usage (from the repository root, after `cargo build --release -p stanc-rs`):
 
-    python3 tools/warning_diff.py STANC3_DIR STANC [OUT_FILE]
+    python3 tools/warning_diff.py STANC3_DIR STANC [OUT_FILE] [-- extra flags]
 
 STANC3_DIR is a checkout of stanc3 and STANC a stanc3 binary of the same version. Reports how
 many programs get warnings from either compiler and on how many the warning text is identical.
-With OUT_FILE, both texts of every mismatch are written there.
+With OUT_FILE, both texts of every mismatch are written there. Flags after `--` are passed to
+both compilers (for example `--warn-pedantic`).
 """
 import concurrent.futures as cf
 import os
 import subprocess
 import sys
 
+args = sys.argv[1:]
+extra = args[args.index("--") + 1:] if "--" in args else []
+args = args[: args.index("--")] if "--" in args else args
+rs_extra = [x for e in extra for x in e.split("=", 1)]
 repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-root = os.path.join(os.path.abspath(sys.argv[1]), "test", "integration")
-st = os.path.abspath(sys.argv[2])
-out = sys.argv[3] if len(sys.argv) > 3 else None
+root = os.path.join(os.path.abspath(args[0]), "test", "integration")
+st = os.path.abspath(args[1])
+out = args[2] if len(args) > 2 else None
 rs = os.path.join(repo, "target", "release", "stanc-rs")
 good = sorted(
     os.path.relpath(os.path.join(d, f), root)
@@ -29,9 +34,9 @@ good = sorted(
 
 def one(p):
     inc = f"included,{os.path.dirname(p)}"
-    a = subprocess.run([st, f"--include-paths={inc}", "--o=/dev/null", p], cwd=root,
+    a = subprocess.run([st, f"--include-paths={inc}", "--o=/dev/null", *extra, p], cwd=root,
                        capture_output=True, text=True)
-    b = subprocess.run([rs, "check", p, "--include-paths", inc], cwd=root,
+    b = subprocess.run([rs, "check", p, "--include-paths", inc, *rs_extra], cwd=root,
                        capture_output=True, text=True)
     return p, a.stderr.strip(), b.stderr.strip()
 
