@@ -611,8 +611,9 @@ impl Gen {
             (Divide | EltDivide, 'm', 's') => Some("div_ms"),
             (EltDivide, a, b) if vec_like(a) && vec_like(b) => Some("ediv_vv"),
             (EltDivide, 'm', 'm') => Some("ediv_mm"),
-            (EltDivide, 's', b) if vec_like(b) => Some("ediv_sv"),
-            (EltDivide, 's', 'm') => Some("ediv_sm"),
+            // Stan divides a scalar by a container element by element.
+            (Divide | EltDivide, 's', b) if vec_like(b) => Some("ediv_sv"),
+            (Divide | EltDivide, 's', 'm') => Some("ediv_sm"),
             _ => None,
         };
         let Some(name) = name else {
@@ -1187,31 +1188,55 @@ impl Gen {
                 let (x, y) = (real_of(self, 0)?, real_of(self, 1)?);
                 format!("{{ let d__ = {x} - {y}; d__ * d__ }}")
             }
-            ("rows_dot_self" | "columns_dot_self", [U::Vector | U::RowVector]) => {
+            // Complex squares are squared moduli, as in Eigen's squaredNorm.
+            (
+                "rows_dot_self" | "columns_dot_self",
+                [t @ (U::Vector | U::RowVector | U::ComplexVector | U::ComplexRowVector)],
+            ) => {
                 let v = at(self, 0)?;
-                let sq = format!("({v}).iter().map(|x__| x__.clone() * x__.clone())");
-                let col = (name == "columns_dot_self") == (tys[0] == &U::Vector);
+                let cplx = matches!(t, U::ComplexVector | U::ComplexRowVector);
+                let lhs = if cplx { "x__.conj()" } else { "x__.clone()" };
+                let sq = format!("({v}).iter().map(|x__| {lhs} * x__.clone())");
+                let col = (name == "columns_dot_self") == matches!(t, U::Vector | U::ComplexVector);
                 if col {
-                    let z = self.zero(&U::Real, &e.ad);
+                    let z = self.zero(&elem_of_result(t), &e.ad);
                     format!("vec![{sq}.fold({z}, |a__, b__| a__ + b__)]")
                 } else {
                     format!("{sq}.collect::<Vec<_>>()")
                 }
             }
-            ("rows_dot_product" | "columns_dot_product", [a @ (U::Vector | U::RowVector), b])
-                if a == b =>
-            {
+            ("to_vector_array" | "to_row_vector_array", [U::ComplexMatrix]) => {
+                format!("sm::{name}(&{})", at(self, 0)?)
+            }
+            // A 2-D array holds the rows.
+            ("to_array_2d", [U::ComplexMatrix]) => {
+                format!("sm::to_row_vector_array(&{})", at(self, 0)?)
+            }
+            ("rows_dot_product" | "columns_dot_product", [U::ComplexMatrix, U::ComplexMatrix]) => {
                 let (x, y) = (at(self, 0)?, at(self, 1)?);
-                let pr = format!(
-                    "rt::stan::common_len({name:?}, &[({x}).len(), ({y}).len()]).map(|_| ({x}).iter().zip(({y}).iter()).map(|(a__, b__)| a__.clone() * b__.clone()))?"
-                );
-                let col = (name == "columns_dot_product") == (**a == U::Vector);
-                if col {
-                    let z = self.zero(&U::Real, &e.ad);
+                format!("sm::{name}_complex(&{x}, &{y})?")
+            }
+            // Without conjugation, as in Stan Math.
+            (
+                "rows_dot_product" | "columns_dot_product",
+                [
+                    a @ (U::Vector | U::RowVector | U::ComplexVector | U::ComplexRowVector),
+                    b,
+                ],
+            ) if a == b => {
+                let (x, y) = (at(self, 0)?, at(self, 1)?);
+                let pr = "x__.iter().zip(y__.iter()).map(|(a__, b__)| a__.clone() * b__.clone())";
+                let col =
+                    (name == "columns_dot_product") == matches!(a, U::Vector | U::ComplexVector);
+                let out = if col {
+                    let z = self.zero(&elem_of_result(a), &e.ad);
                     format!("vec![{pr}.fold({z}, |a__, b__| a__ + b__)]")
                 } else {
                     format!("{pr}.collect::<Vec<_>>()")
-                }
+                };
+                format!(
+                    "{{ let (x__, y__) = (&{x}, &{y}); rt::stan::common_len({name:?}, &[x__.len(), y__.len()])?; {out} }}"
+                )
             }
             (
                 "mdivide_right",

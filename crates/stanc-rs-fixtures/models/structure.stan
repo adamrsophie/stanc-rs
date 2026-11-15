@@ -18,4 +18,8 @@ generated quantities {
   array[2] complex w = pow({to_complex(0, 1), to_complex(2, 0)}, {to_complex(2, 0), to_complex(3, 0)});
   matrix[2, 3] r = to_matrix({1, 2, 3, 4, 5, 6}, 2, 3, 0);
   array[2] vector[2] s = softmax({[0, 0]', [0, log(3)]'});
+  complex_vector[2] cv = [to_complex(1, 2), to_complex(0, 3)]';
+  complex_row_vector[1] cds = columns_dot_self(cv);
+  complex_vector[2] rdp = rows_dot_product(cv, cv);
+  complex_vector[2] dv = to_complex(2, 0) / cv;
 }

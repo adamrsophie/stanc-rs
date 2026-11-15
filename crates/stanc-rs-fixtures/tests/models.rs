@@ -770,10 +770,55 @@ fn structural_functions() {
         .unwrap();
     // After the 17 original values: exp(i pi); i^2 and 2^3 as (re, im) pairs;
     // the row-major 2 by 3 reshape, column by column; and the softmax of each
-    // vector, as s[1][1], s[2][1], s[1][2], s[2][2].
+    // vector, as s[1][1], s[2][1], s[1][2], s[2][2]. Then cv = (1 + 2i, 3i), the squared
+    // norm 14 of cv, the unconjugated products (1 + 2i)^2 and (3i)^2, and 2 / cv.
     let expected = [
-        0.5, -0.5, 2.0, 3.0, 4.0, 2.0, 1.0, 1.0, 2.0, 3.0, 0.5, -0.5, 1.0, 2.0, 5.0, 3.0, 4.0,
-        -1.0, -1.0, 0.0, 8.0, 0.0, 1.0, 4.0, 2.0, 5.0, 3.0, 6.0, 0.5, 0.25, 0.5, 0.75,
+        0.5,
+        -0.5,
+        2.0,
+        3.0,
+        4.0,
+        2.0,
+        1.0,
+        1.0,
+        2.0,
+        3.0,
+        0.5,
+        -0.5,
+        1.0,
+        2.0,
+        5.0,
+        3.0,
+        4.0,
+        -1.0,
+        -1.0,
+        0.0,
+        8.0,
+        0.0,
+        1.0,
+        4.0,
+        2.0,
+        5.0,
+        3.0,
+        6.0,
+        0.5,
+        0.25,
+        0.5,
+        0.75,
+        1.0,
+        2.0,
+        0.0,
+        3.0,
+        14.0,
+        0.0,
+        -3.0,
+        4.0,
+        -9.0,
+        0.0,
+        0.4,
+        -0.8,
+        0.0,
+        -2.0 / 3.0,
     ];
     assert_eq!(out.len(), expected.len());
     for (o, e) in out.iter().zip(expected) {
