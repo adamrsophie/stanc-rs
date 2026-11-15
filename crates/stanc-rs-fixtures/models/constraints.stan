@@ -12,4 +12,7 @@ parameters {
   cholesky_factor_cov[3, 2] L;
   column_stochastic_matrix[2, 2] C;
   row_stochastic_matrix[2, 3] Q;
+  sum_to_zero_matrix[2, 3] Z;
+  simplex[3] s;
+  cholesky_factor_corr[3] Lc;
 }

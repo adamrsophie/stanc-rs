@@ -838,14 +838,17 @@ fn fd_log_jacobian(m: &dyn Model, theta: &[f64], ins: &[usize], outs: &[usize]) 
 fn constraint_transforms() {
     let (mu, tau) = (1.5, 0.5);
     let m = fx::constraints::Model::new(&data(r#"{"mu": 1.5, "tau": 0.5}"#), 0).unwrap();
-    assert_eq!(m.num_unconstrained(), 3 + 3 + 2 + 1 + 3 + 1 + 5 + 2 + 4);
+    assert_eq!(
+        m.num_unconstrained(),
+        3 + 3 + 2 + 1 + 3 + 1 + 5 + 2 + 4 + 2 + 2 + 3
+    );
     // The unit vector part is already of norm one, so it survives a round trip.
     let theta = [
         0.2, -0.4, 0.1, 0.6, 0.0, 0.8, 0.3, -0.7, 0.9, 0.2, -0.3, 0.4, 0.5, -0.2, 0.1, 0.3, 0.4,
-        -0.6, 0.25, -0.5, 0.1, 0.2, -0.3, 0.4,
+        -0.6, 0.25, -0.5, 0.1, 0.2, -0.3, 0.4, 0.7, -0.2, 0.3, 0.6, -0.4, 0.2, 0.5,
     ];
     let o = m.write_array(&theta, false, false, &mut rng()).unwrap();
-    assert_eq!(o.len(), 34);
+    assert_eq!(o.len(), 52);
     // positive_ordered
     assert!(0.0 < o[0] && o[0] < o[1] && o[1] < o[2]);
     // unit_vector
@@ -871,9 +874,27 @@ fn constraint_transforms() {
     assert_close(o[28] + o[30] + o[32], 1.0, 1e-14);
     assert_close(o[29] + o[31] + o[33], 1.0, 1e-14);
     assert!(o[24..34].iter().all(|v| *v > 0.0));
+    // sum_to_zero_matrix[2, 3]: rows and columns sum to zero
+    for j in 0..3 {
+        assert_close(o[34 + 2 * j] + o[35 + 2 * j], 0.0, 1e-14);
+    }
+    for i in 0..2 {
+        assert_close(o[34 + i] + o[36 + i] + o[38 + i], 0.0, 1e-14);
+    }
+    // simplex[3]
+    assert_close(o[40] + o[41] + o[42], 1.0, 1e-14);
+    assert!(o[40..43].iter().all(|v| *v > 0.0));
+    // cholesky_factor_corr[3]: lower triangular rows of unit length
+    for i in 0..3 {
+        let row: f64 = (0..3).map(|j| o[43 + i + 3 * j].powi(2)).sum();
+        assert_close(row, 1.0, 1e-14);
+    }
+    assert_eq!((o[46], o[49], o[50]), (0.0, 0.0, 0.0));
 
-    let names = ["po", "uv", "sz", "om", "S", "R", "L", "C", "Q"];
-    let shapes: [&[usize]; 9] = [
+    let names = [
+        "po", "uv", "sz", "om", "S", "R", "L", "C", "Q", "Z", "s", "Lc",
+    ];
+    let shapes: [&[usize]; 12] = [
         &[3],
         &[3],
         &[3],
@@ -883,6 +904,9 @@ fn constraint_transforms() {
         &[3, 2],
         &[2, 2],
         &[2, 3],
+        &[2, 3],
+        &[3],
+        &[3, 3],
     ];
     let mut json = String::from("{");
     let mut at = 0;
@@ -926,7 +950,10 @@ fn constraint_transforms() {
         + fd(12..13, &[15])
         + fd(13..18, &[18, 19, 20, 22, 23])
         + fd(18..20, &[24, 26])
-        + fd(20..24, &[28, 29, 30, 31]);
+        + fd(20..24, &[28, 29, 30, 31])
+        // sum_to_zero_matrix: no adjustment, as for the vector.
+        + fd(26..28, &[40, 41])
+        + fd(28..31, &[44, 45, 48]);
     assert_close(jac, expected, 1e-6);
     check_gradient(&m, &theta, FULL);
 }
