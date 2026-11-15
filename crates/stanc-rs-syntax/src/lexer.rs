@@ -430,7 +430,7 @@ fn lex_file(
                         DiagnosticKind::Lexical,
                         b.len(),
                         b.len(),
-                        "Comment opened by \"/*\" is never closed by \"*/\".".into(),
+                        "Unexpected end of input.".into(),
                     ));
                 }
             }
@@ -634,11 +634,12 @@ fn lex_file(
                 j += 1;
             }
             if j >= b.len() || b[j] != b'"' {
+                // stanc3 cannot lex the opening quote.
                 return Err(err(
                     DiagnosticKind::Lexical,
                     i,
-                    j,
-                    "Unterminated string literal.".into(),
+                    i + 1,
+                    "Invalid character found.".into(),
                 ));
             }
             out.push(Token {
@@ -663,11 +664,11 @@ fn lex_file(
             i += s.len();
             continue;
         }
-        let ch = text[i..].chars().next().unwrap_or('?');
         return Err(err(
             DiagnosticKind::Lexical,
             start,
-            start + ch.len_utf8(),
+            // ocamllex reads bytes.
+            start + 1,
             "Invalid character found.".to_string(),
         ));
     }
@@ -843,9 +844,9 @@ mod tests {
 
     #[test]
     fn errors() {
-        assert!(lex_err("/* never closed").message.contains("never closed"));
-        assert!(lex_err("x @ y").message.contains("'@'"));
-        assert!(lex_err("x = \"abc").message.contains("Unterminated"));
+        assert!(lex_err("/* never closed").message.contains("end of input"));
+        assert_eq!(lex_err("x @ y").message, "Invalid character found.");
+        assert!(lex_err("x = \"abc").message.contains("Invalid character"));
         assert!(lex_err("é").message.contains("Invalid character"));
         assert!(
             lex_err("# comment").message.contains("'#'")

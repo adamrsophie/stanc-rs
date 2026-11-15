@@ -15,12 +15,21 @@ pub mod autoformat;
 pub mod canonicalize;
 pub mod format;
 pub mod lexer;
+mod lr;
 pub mod parser;
 pub mod pretty;
 pub mod source;
 
 pub use lexer::{IncludeResolver, NoIncludes};
 pub use source::{Comment, CommentKind, Diagnostic, DiagnosticKind, SourceFile, SourceMap, Span};
+
+/// The errors stanc3 raises in the actions of its grammar, before its parser would fail.
+const STANC3_ACTION_ERRORS: &[&str] = &[
+    "Ill-formed identifier.",
+    "Ill-formed index.",
+    "Ill-formed assignment.",
+    "Ill-formed declaration. \";\" expected",
+];
 
 /// Lexes and parses a program. On error, the source map is returned with the diagnostic so that
 /// it can be rendered.
@@ -48,6 +57,26 @@ pub fn parse_with(
         parser::parse_program(&tokens)
     };
     let eof = tokens.last().map(|t| t.span);
+    // Word syntax errors as stanc3 does, from the state of its parser at the same token.
+    let r = r.map_err(|mut d| {
+        if d.kind == DiagnosticKind::Syntax
+            && let Some((i, msg)) = lr::syntax_error_message(&tokens, functions_only)
+        {
+            // Where stanc3's parser stops later, its location wins; at the same token, only
+            // errors from the grammar's actions keep their own wording.
+            if tokens.get(i).map(|t| t.span) == d.span {
+                d.message = msg;
+            } else if d.span.is_some_and(|s| tokens[i].span.start > s.start)
+                && !STANC3_ACTION_ERRORS
+                    .iter()
+                    .any(|p| d.message.starts_with(p))
+            {
+                d.message = msg;
+                d.span = Some(tokens[i].span);
+            }
+        }
+        d
+    });
     match (r, lex_error) {
         (Ok(p), None) => Ok((p, sources)),
         (Err(d), None) => Err((d, sources)),

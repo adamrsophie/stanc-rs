@@ -25,6 +25,13 @@ use crate::source::{Diagnostic, DiagnosticKind, Span};
 
 type PResult<T> = Result<T, Diagnostic>;
 
+/// An OCaml format string laid out as stanc3 prints it.
+fn layout(fmt: &str) -> String {
+    let mut f = crate::format::Formatter::new();
+    f.pf(fmt);
+    f.finish()
+}
+
 /// Parses a full program from tokens produced by [`crate::lexer::tokenize`].
 pub fn parse_program(tokens: &[Token]) -> PResult<Program> {
     let mut p = Parser {
@@ -387,16 +394,34 @@ impl<'a> Parser<'a> {
         let mut vars = Vec::new();
         loop {
             if !vars.is_empty() && self.peek().is_type_keyword() {
-                return self.error(format!(
-                    "Ill-formed identifier. Found a type (\"{}\") where an identifier was expected. All variables declared in a comma-separated list must be of the same type.",
+                return self.error(layout(&format!(
+                    "@[Ill-formed identifier. Found a type (\"{}\") where an identifier was expected.@ All variables declared in a comma-separated list must be of the same type.@]",
                     self.peek().describe()
-                ));
+                )));
             }
             let ident = self.decl_identifier()?;
             if self.peek() == &Tok::LBrack {
-                return self.error(
-                    "Ill-formed declaration. \";\" expected after variable declaration. It looks like you are trying to use the old array syntax. Please use the new syntax: array[size] type name;",
-                );
+                // stanc3 parses the old array syntax to suggest the new one.
+                self.bump();
+                let mut dims = vec![self.expr()?];
+                while self.eat(&Tok::Comma) {
+                    dims.push(self.expr()?);
+                }
+                self.expect(Tok::RBrack, "\"]\"")?;
+                let span = dims[0].span.to(dims[dims.len() - 1].span);
+                let ty = dims
+                    .into_iter()
+                    .rev()
+                    .fold(ty.clone(), |t, d| SizedType::Array(Box::new(t), d));
+                return Err(Diagnostic::new(
+                    DiagnosticKind::Syntax,
+                    span,
+                    layout(&format!(
+                        "@[<v 2>Ill-formed declaration. \";\" expected after variable declaration.@ It looks like you are trying to use the old array syntax.@ Please use the new syntax:@ @[<h>{} {};@]@]",
+                        crate::pretty::decl_type(&ty, &trans),
+                        ident.name
+                    )),
+                ));
             }
             let init = if self.peek() == &Tok::Assign {
                 if ctx == DeclCtx::TopNoAssign {
@@ -1207,11 +1232,14 @@ impl<'a> Parser<'a> {
                     else {
                         return Err(Diagnostic::new(
                             DiagnosticKind::Syntax,
-                            slot_span,
-                            format!(
-                                "Ill-formed index. Failed to parse integer from string \"{}\" in tuple index.",
+                            Span {
+                                start: slot_span.start + 1,
+                                ..slot_span
+                            },
+                            layout(&format!(
+                                "@[Ill-formed index. Failed to parse integer from string \"{}\" in tuple index.@ The index is likely too large.@]",
                                 &s[1..]
-                            ),
+                            )),
                         ));
                     };
                     self.bump();
