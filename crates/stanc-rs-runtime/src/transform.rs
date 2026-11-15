@@ -89,22 +89,22 @@ macro_rules! vector_transform {
     };
 }
 
-vector_transform!(
+vector_transform! {
     /// `ordered`.
     ordered, 0
-);
-vector_transform!(
+}
+vector_transform! {
     /// `positive_ordered`.
     positive_ordered, 0
-);
-vector_transform!(
+}
+vector_transform! {
     /// `simplex`: `K - 1` values to a `K`-simplex.
     simplex, 1
-);
-vector_transform!(
+}
+vector_transform! {
     /// `unit_vector`.
     unit_vector, 0
-);
+}
 
 /// `sum_to_zero_vector`: `K - 1` values to `K`.
 pub fn sum_to_zero<T: Real>(y: &[T], _lp: Option<&mut T>) -> Result<Vec<T>> {
