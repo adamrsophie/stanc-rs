@@ -25,14 +25,14 @@ impl Origin {
     /// Block name as written in Stan.
     pub fn block_name(self) -> &'static str {
         match self {
-            Origin::MathLibrary => "Stan Math library",
-            Origin::Functions => "functions",
-            Origin::Data => "data",
-            Origin::TData => "transformed data",
-            Origin::Param => "parameters",
-            Origin::TParam => "transformed parameters",
-            Origin::Model => "model",
-            Origin::GQuant => "generated quantities",
+            Origin::MathLibrary => "Stan Math Library",
+            Origin::Functions => "functions block",
+            Origin::Data => "data block",
+            Origin::TData => "transformed data block",
+            Origin::Param => "parameters block",
+            Origin::TParam => "transformed parameters block",
+            Origin::Model => "model block",
+            Origin::GQuant => "generated quantities block",
         }
     }
 }

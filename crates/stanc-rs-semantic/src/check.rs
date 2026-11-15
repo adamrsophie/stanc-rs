@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use stanc_rs_syntax::ast::*;
 use stanc_rs_syntax::{Diagnostic, DiagnosticKind, Span};
 
+use stanc_rs_syntax::format::{BoxKind, Formatter};
+
 use crate::mismatch::{self, Sig};
 use crate::signatures::{self, Signature};
 use crate::typed::*;
@@ -15,8 +17,13 @@ use crate::types::*;
 
 type R<T> = Result<T, Diagnostic>;
 
+/// A semantic error; `msg` is an OCaml format string laid out as stanc3 does.
 fn err<T>(span: Span, msg: impl Into<String>) -> R<T> {
-    Err(Diagnostic::new(DiagnosticKind::Semantic, span, msg))
+    Err(Diagnostic::new(
+        DiagnosticKind::Semantic,
+        span,
+        layout(&msg.into()),
+    ))
 }
 
 const RESERVED: &[&str] = &[
@@ -371,13 +378,13 @@ impl Checker {
         if !self.opts.model_name.is_empty() && id.name == self.opts.model_name {
             return err(
                 id.span,
-                format!("Identifier '{}' clashes with the model name.", id.name),
+                format!("Identifier {} clashes with model name.", q(&id.name)),
             );
         }
         if id.name.ends_with("__") || RESERVED.contains(&id.name.as_str()) {
             return err(
                 id.span,
-                format!("Identifier '{}' clashes with a reserved keyword.", id.name),
+                format!("Identifier {} clashes with reserved keyword.", q(&id.name)),
             );
         }
         Ok(())
@@ -400,26 +407,41 @@ impl Checker {
             let _ = prev;
             return err(
                 id.span,
-                format!("Identifier '{}' is already in use.", id.name),
+                format!("Identifier {} is already in use.", q(&id.name)),
             );
         }
         Ok(())
     }
 
+    /// stanc3's `nearest_ident` as a `did_you_mean` suffix: `@ Did you mean "x"?`, or nothing.
     fn nearest(&self, name: &str) -> String {
-        let mut best: Option<(usize, String)> = None;
-        let cands = self
+        let base = match FnSuffix::from_name(name) {
+            FnSuffix::Plain => name,
+            _ => name.rsplit_once('_').map_or(name, |(b, _)| b),
+        };
+        let max = (base.len() / 2).min(5);
+        let mut names: Vec<&str> = self
             .env
             .all_names()
-            .cloned()
-            .chain(signatures::table().keys().cloned());
-        for c in cands {
-            let d = edit_distance(name, &c);
-            if d <= 3 && best.as_ref().is_none_or(|(bd, _)| d < *bd) {
+            .map(String::as_str)
+            .chain(signatures::table().keys().map(String::as_str))
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        let mut best: Option<(usize, &str)> = None;
+        for c in &names {
+            let d = edit_distance(name, c);
+            if d <= max && best.is_none_or(|(bd, _)| d < bd) {
                 best = Some((d, c));
             }
         }
-        best.map(|(_, c)| format!(" A similar known identifier is '{c}'."))
+        let other = ["_lpmf", "_lpdf", "_cdf", "_lcdf", "_lccdf", "_rng"]
+            .iter()
+            .map(|s| format!("{name}{s}"))
+            .find(|n| names.binary_search(&n.as_str()).is_ok());
+        best.map(|(_, c)| c.to_string())
+            .or(other)
+            .map(|c| format!("@ Did you mean {}?", q(&c)))
             .unwrap_or_default()
     }
 
@@ -549,7 +571,7 @@ impl Checker {
                 if !(ctx.in_lp() || ctx.block == Origin::Model || ctx.block == Origin::TParam) {
                     return err(
                         span,
-                        "Target can only be accessed in the model block or in definitions of functions with the suffix _lp.",
+                        "Target can only be accessed in the model block or in functions ending with _lp.",
                     );
                 }
                 let ad = calc_ad(ctx, ctx.block, &UnsizedType::Real);
@@ -813,10 +835,10 @@ impl Checker {
                 {
                     return err(
                         t.span,
-                        format!(
-                            "Index must be of type int or int[] or must be a range. Instead found type {}.",
+                        layout(&format!(
+                            "@[Index must be of type int or array[] int or must be a range (int:int).@ Instead found type {}.@]",
                             t.ty
-                        ),
+                        )),
                     );
                 }
                 TIndex::Single(t)
@@ -834,13 +856,7 @@ impl Checker {
         if signatures::is_unnormalized(&id.name)
             && !(ctx.in_udf_dist() || ctx.block == Origin::Model)
         {
-            return err(
-                id.span,
-                format!(
-                    "Functions with names ending in _lupdf and _lupmf can only be used in the model block or user-defined functions with names ending in _lpdf or _lpmf. Found '{}'.",
-                    id.name
-                ),
-            );
+            return err(id.span, unnormalized_error(&id.name));
         }
         match entries.first() {
             Some(Entry {
@@ -860,8 +876,7 @@ impl Checker {
                     return err(
                         id.span,
                         format!(
-                            "Non-data variables are not allowed in top level size declarations; found variable '{}' declared in the {} block.",
-                            id.name,
+                            "Top level variable sizes must be variables from the (transformed) data block or functions thereof, but this variable was declared in the {}.",
                             origin.block_name()
                         ),
                     );
@@ -893,11 +908,11 @@ impl Checker {
             )),
             None => err(
                 id.span,
-                format!(
-                    "Identifier '{}' not in scope.{}",
-                    id.name,
+                layout(&format!(
+                    "@[Identifier {} not in scope.{}@]",
+                    q(&id.name),
                     self.nearest(&id.name)
-                ),
+                )),
             ),
         }
     }
@@ -1101,13 +1116,7 @@ impl Checker {
         if signatures::is_unnormalized(&id.name)
             && !(ctx.in_udf_dist() || ctx.block == Origin::Model)
         {
-            return err(
-                span,
-                format!(
-                    "Functions with names ending in _lupdf and _lupmf can only be used in the model block or user-defined functions with names ending in _lpdf or _lpmf. Found '{}'.",
-                    id.name
-                ),
-            );
+            return err(span, unnormalized_error(&id.name));
         }
         Ok(res)
     }
@@ -1119,7 +1128,7 @@ impl Checker {
             } else if !(ctx.in_lp() || ctx.block == Origin::Model) {
                 return err(
                     span,
-                    "Target can only be accessed in the model block or in definitions of functions with the suffix _lp.",
+                    "Target can only be accessed in the model block or in functions ending with _lp.",
                 );
             }
         }
@@ -1131,7 +1140,7 @@ impl Checker {
             if !(ctx.in_jacobian() || ctx.block == Origin::TParam) {
                 return err(
                     span,
-                    "The jacobian adjustment can only be applied in the transformed parameters block or in functions ending with _jacobian.",
+                    "The jacobian adjustment can only be applied in the transformed parameters block or in functions ending with _jacobian",
                 );
             }
             if !args.iter().any(|a| a.ad.has_autodiff()) {
@@ -1160,7 +1169,9 @@ impl Checker {
             if !(ctx.in_rng() || ctx.block == Origin::GQuant || ctx.block == Origin::TData) {
                 return err(
                     span,
-                    "Random number generators are only allowed in transformed data block, generated quantities block or user-defined functions with names ending in _rng.",
+                    layout_text(
+                        "Random number generators are only allowed in transformed data block, generated quantities block or user-defined functions with names ending in _rng.",
+                    ),
                 );
             }
         }
@@ -1200,43 +1211,44 @@ impl Checker {
             return err(
                 span,
                 format!(
-                    "A returning function was expected but a non-function value '{}' was supplied.",
-                    id.name
+                    "A returning function was expected but a non-function value {} was supplied.",
+                    q(&id.name)
                 ),
             );
         }
         if entries.is_empty() && signatures::lookup(&lookup).is_empty() {
-            let mut msg = format!(
-                "A returning function was expected but an undeclared identifier '{}' was supplied.",
-                id.name
-            );
-            if let Some((prefix, suffix)) = id.name.rsplit_once('_') {
-                let has = |s: &str| {
-                    !self
-                        .function_candidates(&format!("{prefix}_{s}"))
-                        .is_empty()
-                };
-                if matches!(suffix, "lpmf" | "lupmf") && has("lpdf") {
-                    msg = format!(
-                        "Function '{}_{}' is not defined. Did you mean '{}_lpdf'?",
-                        prefix, suffix, prefix
-                    );
-                } else if matches!(suffix, "lpdf" | "lupdf") && has("lpmf") {
-                    msg = format!(
-                        "Function '{}_{}' is not defined. Did you mean '{}_lpmf'?",
-                        prefix, suffix, prefix
-                    );
+            let has =
+                |n: &str| !self.env.find(n).is_empty() || signatures::is_stan_math_function(n);
+            let msg = match id.name.rsplit_once('_') {
+                Some((prefix, suffix @ ("lpmf" | "lupmf"))) if has(&format!("{prefix}_lpdf")) => {
+                    wrong_dist_suffix(prefix, suffix)
                 }
-            }
-            msg.push_str(&self.nearest(&id.name));
+                Some((prefix, suffix @ ("lpdf" | "lupdf"))) if has(&format!("{prefix}_lpmf")) => {
+                    wrong_dist_suffix(prefix, suffix)
+                }
+                Some((prefix, "cdf" | "lcdf" | "lccdf" | "rng"))
+                    if signatures::is_distribution_family(prefix) =>
+                {
+                    format!(
+                        "Function {} is not implemented for distribution {}.",
+                        q(&id.name),
+                        q(prefix)
+                    )
+                }
+                _ => layout(&format!(
+                    "@[A returning function was expected but an undeclared identifier {} was supplied.{}@]",
+                    q(&id.name),
+                    self.nearest(&id.name)
+                )),
+            };
             return err(span, msg);
         }
         match self.matching_function(&id.name, &arg_types(&tes)) {
             Match::Unique { ret: None, .. } => err(
                 span,
                 format!(
-                    "A returning function was expected but a non-returning function '{}' was supplied.",
-                    id.name
+                    "A returning function was expected but a non-returning function {} was supplied.",
+                    q(&id.name)
                 ),
             ),
             Match::Unique {
@@ -1547,11 +1559,11 @@ impl Checker {
                 ),
                 None => err(
                     fname.span,
-                    format!(
-                        "Identifier '{}' not in scope.{}",
-                        fname.name,
+                    layout(&format!(
+                        "@[Identifier {} not in scope.{}@]",
+                        q(&fname.name),
                         self.nearest(&fname.name)
-                    ),
+                    )),
                 ),
             };
         }
@@ -1968,8 +1980,9 @@ impl Checker {
                 return err(
                     s.span,
                     format!(
-                        "Function '{}' is already declared in the Stan Math library with signature {}.",
-                        name.name, ty
+                        "Function {} is already declared in the Stan Math library with signature {}",
+                        q(&name.name),
+                        self::ty(&ty)
                     ),
                 );
             }
@@ -1986,8 +1999,8 @@ impl Checker {
             return err(
                 name.span,
                 format!(
-                    "Identifier '{}' clashes with a Stan Math library function.",
-                    name.name
+                    "Identifier {} clashes with a non-overloadable Stan Math library function.",
+                    q(&name.name)
                 ),
             );
         }
@@ -2006,7 +2019,7 @@ impl Checker {
         {
             return err(
                 name.span,
-                format!("Identifier '{}' is already in use.", name.name),
+                format!("Identifier {} is already in use.", q(&name.name)),
             );
         }
         let kind = if is_decl {
@@ -2109,7 +2122,7 @@ impl Checker {
                         return err(
                             span,
                             format!(
-                                "Invalid return statement. Expected type {} but found {}.",
+                                "Invalid return statement. Function is declared to return {}, but this statement returns {} instead.",
                                 expected, te.ty
                             ),
                         );
@@ -2146,7 +2159,7 @@ impl Checker {
                 if !(ctx.in_lp() || ctx.block == Origin::Model) {
                     return err(
                         span,
-                        "Target can only be accessed in the model block or in definitions of functions with the suffix _lp.",
+                        "Target can only be accessed in the model block or in functions ending with _lp.",
                     );
                 }
                 if is_fun_type(&te.ty)
@@ -2168,7 +2181,7 @@ impl Checker {
                 if !(ctx.in_jacobian() || ctx.block == Origin::TParam) {
                     return err(
                         span,
-                        "The jacobian adjustment can only be applied in the transformed parameters block or in functions ending with _jacobian.",
+                        "The jacobian adjustment can only be applied in the transformed parameters block or in functions ending with _jacobian",
                     );
                 }
                 if is_fun_type(&te.ty)
@@ -2205,19 +2218,19 @@ impl Checker {
                     return err(
                         span,
                         format!(
-                            "A non-returning function was expected but a non-function value '{}' was supplied.",
-                            id.name
+                            "A non-returning function was expected but a non-function value {} was supplied.",
+                            q(&id.name)
                         ),
                     );
                 }
                 if entries.is_empty() && !signatures::is_stan_math_function(&lookup) {
                     return err(
                         span,
-                        format!(
-                            "A non-returning function was expected but an undeclared identifier '{}' was supplied.{}",
-                            id.name,
+                        layout(&format!(
+                            "@[A non-returning function was expected but an undeclared identifier {} was supplied.{}@]",
+                            q(&id.name),
                             self.nearest(&id.name)
-                        ),
+                        )),
                     );
                 }
                 match self.matching_function(&id.name, &arg_types(&tes)) {
@@ -2244,8 +2257,8 @@ impl Checker {
                         return err(
                             span,
                             format!(
-                                "A non-returning function was expected but a returning function '{}' was supplied.",
-                                id.name
+                                "A non-returning function was expected but a returning function {} was supplied.",
+                                q(&id.name)
                             ),
                         );
                     }
@@ -2456,7 +2469,7 @@ impl Checker {
             LValueKind::Variable(id) => {
                 self.verify_identifier(id)?;
                 let entry = self.env.find(&id.name).first().map(|e| (*e).clone());
-                match entry {
+                let (origin, global, readonly, ty) = match entry {
                     Some(Entry {
                         kind:
                             EntryKind::Variable {
@@ -2466,59 +2479,54 @@ impl Checker {
                                 ..
                             },
                         ty,
-                    }) => {
-                        if global && origin != ctx.block {
-                            return err(
-                                id.span,
-                                format!(
-                                    "Cannot assign to global variable '{}' declared in previous blocks.",
-                                    id.name
-                                ),
-                            );
-                        }
-                        if readonly {
-                            return err(
-                                id.span,
-                                format!(
-                                    "Cannot assign to function argument or loop identifier '{}'.",
-                                    id.name
-                                ),
-                            );
-                        }
-                        if is_fun_type(&ty) {
-                            return err(
-                                id.span,
-                                format!("Cannot assign a function type to variable '{}'.", id.name),
-                            );
-                        }
-                        let ad = calc_ad(ctx, origin, &ty);
-                        Ok(TLValue {
-                            kind: TLValueKind::Variable {
-                                name: id.name.clone(),
-                                origin,
-                            },
-                            ty,
-                            ad,
-                            span,
-                        })
+                    }) => (origin, global, readonly, ty),
+                    Some(Entry { ty, .. }) => (Origin::Functions, true, false, ty),
+                    None if signatures::is_stan_math_function(&id.name) => (
+                        Origin::MathLibrary,
+                        true,
+                        false,
+                        UnsizedType::MathLibraryFunction,
+                    ),
+                    None => {
+                        return err(
+                            id.span,
+                            layout(&format!(
+                                "@[Identifier {} not in scope.{}@]",
+                                q(&id.name),
+                                self.nearest(&id.name)
+                            )),
+                        );
                     }
-                    Some(_) => err(id.span, format!("Cannot assign to function '{}'.", id.name)),
-                    None if signatures::is_stan_math_function(&id.name) => err(
+                };
+                if global && origin != ctx.block {
+                    return err(
                         id.span,
                         format!(
-                            "Cannot assign to global variable '{}' declared in previous blocks.",
-                            id.name
+                            "Cannot assign to global variable {} declared previously in {}.",
+                            q(&id.name),
+                            origin.block_name()
                         ),
-                    ),
-                    None => err(
-                        id.span,
-                        format!(
-                            "Identifier '{}' not in scope.{}",
-                            id.name,
-                            self.nearest(&id.name)
-                        ),
-                    ),
+                    );
                 }
+                if readonly {
+                    return err(
+                        id.span,
+                        format!(
+                            "Cannot assign to function argument or loop identifier {}.",
+                            q(&id.name)
+                        ),
+                    );
+                }
+                let ad = calc_ad(ctx, origin, &ty);
+                Ok(TLValue {
+                    kind: TLValueKind::Variable {
+                        name: id.name.clone(),
+                        origin,
+                    },
+                    ty,
+                    ad,
+                    span,
+                })
             }
             LValueKind::TupleProjection(inner, k) => {
                 let t = self.check_lvalue(ctx, inner)?;
@@ -2601,6 +2609,17 @@ impl Checker {
         let tr = self.check_expr(ctx, rhs)?;
         let rhs = match op {
             AssignOp::Assign => {
+                if let Some(ft) = function_part(&tr.ty) {
+                    let name = lvalue_base_name(&tl).unwrap_or_default();
+                    return err(
+                        span,
+                        format!(
+                            "Cannot assign a function type ({}) to variable {}.",
+                            ty(ft),
+                            q(name)
+                        ),
+                    );
+                }
                 // stanc3 warns when the right side, without outer parentheses, is the left side.
                 let mut bare = rhs;
                 while let ExprKind::Paren(e) = &bare.kind {
@@ -2617,7 +2636,7 @@ impl Checker {
                     Diagnostic::new(
                         DiagnosticKind::Semantic,
                         tr.span,
-                        format!("Ill-typed arguments supplied to assignment operator =: lhs has type {} and rhs has type {}.", tl.ty, tr.ty),
+                        illtyped_assignment(&tl.ty, &tr.ty),
                     )
                 })?;
                 promote(tr, &p)
@@ -2708,7 +2727,7 @@ impl Checker {
         if !(ctx.in_lp() || ctx.block == Origin::Model) {
             return err(
                 span,
-                "Target can only be accessed in the model block or in definitions of functions with the suffix _lp.",
+                "Target can only be accessed in the model block or in functions ending with _lp.",
             );
         }
         if n.ends_with("_cdf") || n.ends_with("_ccdf") {
@@ -2774,14 +2793,21 @@ impl Checker {
                 let int = is_int_type(&all[0].ty);
                 return err(
                     dist.span,
-                    format!(
-                        "Ill-typed arguments to '~' statement. No distribution '{n}' was found{}.",
-                        if int {
-                            " with an integer first argument"
-                        } else {
-                            ""
-                        }
-                    ),
+                    if int {
+                        format!(
+                            "Ill-typed arguments to distribution statement (~). No function {} or {} was found when looking for distribution {}.",
+                            q(&format!("{n}_lpmf")),
+                            q(&format!("{n}_lpdf")),
+                            q(n)
+                        )
+                    } else {
+                        format!(
+                            "Ill-typed arguments to {}-statement. No function {} was found when looking for distribution {}.",
+                            q("~"),
+                            q(&format!("{n}_lpdf")),
+                            q(n)
+                        )
+                    },
                 );
             }
             Match::Errors(errs) => return Err(self.signature_error(span, n, &all, errs)),
@@ -2810,9 +2836,10 @@ impl Checker {
                     _ => {
                         return err(
                             span,
-                            format!(
-                                "Truncation is only defined if distribution has _lcdf and _lccdf functions implemented with appropriate signature. No matching signature for '{n}'."
-                            ),
+                            layout(&format!(
+                                "Truncation is only defined if distribution has _lcdf and _lccdf functions implemented with appropriate signature.\nNo matching signature for arguments: @[({})@]",
+                                fun_args(&bt)
+                            )),
                         );
                     }
                 }
@@ -2987,13 +3014,7 @@ impl Checker {
                             Some(promote(tr, &p))
                         }
                         Err(_) => {
-                            return err(
-                                span,
-                                format!(
-                                    "Ill-typed arguments supplied to assignment operator =: lhs has type {} and rhs has type {}.",
-                                    ut, tr.ty
-                                ),
-                            );
+                            return err(span, illtyped_assignment(&ut, &tr.ty));
                         }
                     }
                 }
@@ -3015,14 +3036,23 @@ impl Checker {
             if tty == TSizedType::Int && realt {
                 return err(
                     span,
-                    "Bounds of integer variable must be of type int. Found type real.",
+                    layout(
+                        "@[Bounds of integer variable must be of type int.@ Instead found type real.@]",
+                    ),
                 );
             }
             if is_complex_type(&ut) && ttrans != TTransformation::Identity {
                 return err(span, "Complex types do not support transformations.");
             }
             if matches!(ctx.block, Origin::Param | Origin::TParam) && contains_int(&ut) {
-                return err(span, "(Transformed) Parameters cannot be integers.");
+                return err(
+                    span,
+                    if ctx.block == Origin::Param {
+                        "Parameters cannot be integers."
+                    } else {
+                        "Transformed parameters cannot be integers."
+                    },
+                );
             }
         }
         let ad = calc_ad(ctx, ctx.block, &ut);
@@ -3081,10 +3111,11 @@ impl Checker {
                 a => {
                     return err(
                         span,
-                        format!(
-                            "Probability mass functions require integer variates (first argument). Instead found type {}.",
-                            a.map(|a| a.ty.to_string()).unwrap_or_default()
-                        ),
+                        layout(&format!(
+                            "@[Probability mass functions require integer variates (first argument).{}@]",
+                            a.map(|a| format!("@ Instead found type {}.", a.ty))
+                                .unwrap_or_default()
+                        )),
                     );
                 }
             }
@@ -3616,19 +3647,31 @@ fn expr_mentions(e: &Expr, name: &str) -> bool {
     }
 }
 
+/// Edit distance counting insertions, deletions, substitutions, and transpositions of adjacent
+/// characters (OCaml's `String.edit_distance`).
 fn edit_distance(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
-    let mut prev: Vec<usize> = (0..=b.len()).collect();
-    for i in 1..=a.len() {
-        let mut cur = vec![i; b.len() + 1];
-        for j in 1..=b.len() {
-            let c = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + c);
-        }
-        prev = cur;
+    let mut d = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for (i, row) in d.iter_mut().enumerate() {
+        row[0] = i;
     }
-    prev[b.len()]
+    for (j, x) in d[0].iter_mut().enumerate() {
+        *x = j;
+    }
+    for i in 1..=a.len() {
+        for j in 1..=b.len() {
+            let c = usize::from(a[i - 1] != b[j - 1]);
+            let mut v = (d[i - 1][j] + 1)
+                .min(d[i][j - 1] + 1)
+                .min(d[i - 1][j - 1] + c);
+            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                v = v.min(d[i - 2][j - 2] + 1);
+            }
+            d[i][j] = v;
+        }
+    }
+    d[a.len()][b.len()]
 }
 
 /// The argument list a higher-order call was checked against, and why it does not match.
@@ -3703,4 +3746,115 @@ fn specialize_span(span: Span, e: &Mismatch, args: &[TExpr]) -> Span {
     args.get(which.max(0) as usize)
         .map(|a| a.span)
         .unwrap_or(span)
+}
+
+/// stanc3's `quoted`, as a format string (`Fmt.quote` opens a box).
+fn q(s: &str) -> String {
+    format!("@[<1>\"{s}\"@]")
+}
+
+/// `UnsizedType.pp` as a format string: function types and tuples open boxes.
+fn ty(t: &UnsizedType) -> String {
+    match t {
+        UnsizedType::Function(ft) => {
+            let args = ft
+                .args
+                .iter()
+                .map(|(a, t)| {
+                    let d = if *a == AdLevel::DataOnly && function_part(t).is_none() {
+                        "data "
+                    } else {
+                        ""
+                    };
+                    format!("{d}{}", ty(t))
+                })
+                .collect::<Vec<_>>()
+                .join(",@ ");
+            let ret = ft.ret.as_ref().map_or("void".to_string(), ty);
+            format!("@[<h>({args}) => {ret}@]")
+        }
+        UnsizedType::Tuple(ts) => {
+            let inner = ts.iter().map(ty).collect::<Vec<_>>().join(",@ ");
+            if ts.len() == 1 {
+                format!("tuple(@[{inner},@])")
+            } else {
+                format!("tuple(@[{inner}@])")
+            }
+        }
+        UnsizedType::Array(_) => {
+            let (n, inner) = t.array_dims();
+            format!("array[{}] {}", ",".repeat(n - 1), ty(inner))
+        }
+        t => t.to_string(),
+    }
+}
+
+/// Lays out an OCaml format string as stanc3 prints error explanations.
+fn layout(fmt: &str) -> String {
+    let mut f = Formatter::new();
+    f.open(BoxKind::HOV, 0);
+    f.pf(fmt);
+    f.close();
+    f.finish()
+}
+
+/// Lays out text as `Fmt.text` does: spaces are break hints.
+fn layout_text(s: &str) -> String {
+    let mut f = Formatter::new();
+    f.open(BoxKind::HOV, 0);
+    f.text(s);
+    f.close();
+    f.finish()
+}
+
+fn unnormalized_error(name: &str) -> String {
+    layout(&format!(
+        "@[Unnormalized probability functions such as {} can@ only be used in the model block or in user-defined functions with names@ ending in _lpdf or _lpmf.@ Did you mean {}?@]",
+        q(name),
+        q(&signatures::normalized_name(name))
+    ))
+}
+
+fn illtyped_assignment(lt: &UnsizedType, rt: &UnsizedType) -> String {
+    layout(&format!(
+        "@[Ill-typed assignment statement.@ Expected the right hand side to have a type matching the destination ({lt}).@ Instead found type {rt}.@]"
+    ))
+}
+
+fn wrong_dist_suffix(prefix: &str, suffix: &str) -> String {
+    let new = match suffix {
+        "lpdf" => "lpmf",
+        "lupdf" => "lupmf",
+        "lpmf" => "lpdf",
+        _ => "lupdf",
+    };
+    format!(
+        "Function {} is not implemented for distribution {}, use {} instead.",
+        q(&format!("{prefix}_{suffix}")),
+        q(prefix),
+        q(&format!("{prefix}_{new}"))
+    )
+}
+
+/// The first function type in `t`, looking inside tuples.
+fn function_part(t: &UnsizedType) -> Option<&UnsizedType> {
+    match t {
+        UnsizedType::Function(_) | UnsizedType::MathLibraryFunction => Some(t),
+        UnsizedType::Tuple(ts) => ts.iter().find_map(function_part),
+        _ => None,
+    }
+}
+
+/// Arguments as `UnsizedType.pp_fun_arg` lists them, as a format string: `data real,@ int`.
+fn fun_args(args: &[(Ad, UnsizedType)]) -> String {
+    args.iter()
+        .map(|(ad, t)| {
+            if *ad == Ad::DataOnly && function_part(t).is_none() {
+                format!("data {t}")
+            } else {
+                t.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",@ ")
 }

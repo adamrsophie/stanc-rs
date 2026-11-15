@@ -371,7 +371,7 @@ impl std::fmt::Display for UnsizedType {
                 }
                 write!(f, ")")
             }
-            MathLibraryFunction => write!(f, "Stan Math function"),
+            MathLibraryFunction => write!(f, "<Stan Math function>"),
             Function(ft) => {
                 write!(f, "(")?;
                 for (i, (ad, t)) in ft.args.iter().enumerate() {

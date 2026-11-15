@@ -482,8 +482,8 @@ pub fn signature_mismatch(
         names: Names::default(),
     };
     p.f.open(BoxKind::V, 0);
-    p.f.string(&format!(
-        "Ill-typed arguments supplied to function \"{name}\":"
+    p.f.pf(&format!(
+        "Ill-typed arguments supplied to function @[<1>\"{name}\"@]:"
     ));
     p.f.space();
     p.with_where(|p| {

@@ -44,6 +44,12 @@ pub fn lookup(name: &str) -> &'static [Signature] {
         .unwrap_or(&[])
 }
 
+/// Is `prefix` a Stan Math distribution family (has an `_lpdf` or `_lpmf`)?
+pub fn is_distribution_family(prefix: &str) -> bool {
+    table().contains_key(&format!("{prefix}_lpdf"))
+        || table().contains_key(&format!("{prefix}_lpmf"))
+}
+
 /// True if `name` is a Stan Math function (including variadic ones).
 pub fn is_stan_math_function(name: &str) -> bool {
     let n = normalized_name(name);
