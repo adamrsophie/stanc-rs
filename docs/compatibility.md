@@ -4,9 +4,8 @@ stanc-rs follows stanc3 v2.40.0. This page records what has been measured agains
 test corpus and against a stanc3 v2.40.0 binary, and what is known not to work. It is an
 independent implementation; nothing here is a claim of full equivalence with stanc3 or CmdStan.
 
-All numbers below were measured at commit `a50fb6b` against the `test/integration` programs of
-the stanc3 v2.40.0 release, with stanmath-rs at revision
-`affeffe936faad8156fa4ad539cad1bfb07ba020`.
+All numbers below were measured against the `test/integration` programs of the stanc3 v2.40.0
+release, with stanmath-rs at revision `04dc87184161bf29cbc035a32eb0407b14169900`.
 
 ## Summary
 
@@ -17,10 +16,10 @@ the stanc3 v2.40.0 release, with stanmath-rs at revision
 | Crashes on `bad` programs | 0 |
 | Error reported on the same line as stanc3 | 1191 of 1191 |
 | Same error category as stanc3 (syntax or semantic) | 1173 of 1191 |
-| `good` programs translated to Rust | 1242 of 1244 |
-| Translated programs whose Rust builds (`cargo check`) | 1242 of 1242 |
+| `good` programs translated to Rust | 1244 of 1244 |
+| Translated programs whose Rust builds (`cargo check`) | 1244 of 1244 |
 | `stanc-rs info` equal to `stanc --info` (as JSON values) | 1244 of 1244 |
-| Fixture models whose log density and gradient agree with CmdStan's `log_prob` | 23 of 23 |
+| Fixture models whose log density and gradient agree with CmdStan's `log_prob` | 24 of 24 |
 | `stanc-rs format` output identical to `stanc --auto-format` | 0 of 1244 |
 
 "Builds" means the generated module type checks against the runtime and stanmath-rs. It does not
@@ -41,12 +40,17 @@ python3 tools/cmdstan_diff.py CMDSTAN_DIR WORK_DIR   # fixture densities against
 `STANC` a stanc3 v2.40.0 binary (CmdStan ships one as `bin/stanc`). `corpus.py` writes `codegen_fail.txt`, `check_errors.txt`, and
 `check_bad.txt` to `OUT_DIR`.
 
-## Programs that are not translated
+## Extensions beyond Stan
 
-Two programs use `laplace_marginal_neg_binomial_2_log` with a vector of dispersions:
-`good/code-gen/laplace_neg_binomial_2_log.stan` and `good/code-gen/laplace_nested_tuple.stan`.
-stanmath-rs implements that function for a scalar dispersion only, so stanc-rs reports the call
-as unsupported. Supporting it needs a change in stanmath-rs.
+stanc-rs accepts every program stanc3 accepts. Where a Stan function is defined mathematically
+for more inputs than Stan Math evaluates, stanc-rs evaluates them:
+
+* `laplace_marginal_neg_binomial_2_log_lpmf`, its `_tol` and `_lupmf` forms, and
+  `laplace_latent_neg_binomial_2_log_rng` take the dispersion as a vector. Stan Math 5.x
+  evaluates it only when the observations, latent groups, and dispersions all have length one.
+  stanc-rs accepts one dispersion shared by every observation or one per observation, and the
+  fixture `laplace_nb_vector` checks both against a closed form. The fully scalar case also
+  agrees with CmdStan.
 
 ## Diagnostics
 
@@ -78,7 +82,7 @@ the Laplace approximation functions.
 
 `tools/cmdstan_diff.py` also compiles every fixture model with CmdStan 2.40.0 and compares the
 log density (up to a constant) and its gradient at a fixed unconstrained point, with and
-without the Jacobian adjustment. All 23 models with parameters agree to a relative 1e-8, which
+without the Jacobian adjustment. All 24 models with parameters agree to a relative 1e-8, which
 also confirms that the unconstrained parameter layout is Stan's. The one looser comparison is
 `vector_truncate`, whose gradients differ from CmdStan's by about 1e-6: Stan Math approximates
 the derivatives of `normal_lcdf` and `normal_lccdf`, while stanmath-rs differentiates them

@@ -805,8 +805,9 @@ fn log_abs_det(mut a: Vec<Vec<f64>>) -> f64 {
         s += a[c][c].abs().ln();
         for r in c + 1..n {
             let f = a[r][c] / a[c][c];
-            for k in c..n {
-                a[r][k] -= f * a[c][k];
+            let pivot = a[c].clone();
+            for (x, p) in a[r][c..].iter_mut().zip(&pivot[c..]) {
+                *x -= f * p;
             }
         }
     }
@@ -975,4 +976,65 @@ fn reject_and_fatal_error() {
         .unwrap_err();
     assert_eq!(e.kind, ErrorKind::Fatal);
     assert_eq!(e.message, "x below -10");
+}
+
+/// The Laplace approximation of one latent group with prior `normal(0, sqrt(s))` and negative
+/// binomial counts `y[i]` with log mean `t` and dispersions `phi[i]`: the mode `t` of
+/// `psi(t) = sum log p(y | t) - t^2 / (2 s)` by Newton's method, then
+/// `psi(t) - log(1 + s W) / 2` with `W` the negative second derivative of the log likelihood.
+fn nb_group_laplace(y: &[f64], phi: &[f64], s: f64) -> f64 {
+    use stanc_rs_runtime::stanmath_rs::prelude::lgamma;
+    let curvature = |t: f64| {
+        let mu = t.exp();
+        let (mut g, mut w) = (0.0, 0.0);
+        for (&y, &p) in y.iter().zip(phi) {
+            g += y - (p + y) * mu / (mu + p);
+            w += (p + y) * mu * p / (mu + p).powi(2);
+        }
+        (g - t / s, w)
+    };
+    let mut t = 0.0;
+    for _ in 0..100 {
+        let (g, w) = curvature(t);
+        t += g / (w + 1.0 / s);
+    }
+    let mu = t.exp();
+    let ll: f64 = y
+        .iter()
+        .zip(phi)
+        .map(|(&y, &p)| {
+            lgamma(y + p) - lgamma(p) - lgamma(y + 1.0)
+                + p * (p / (mu + p)).ln()
+                + y * (t - (mu + p).ln())
+        })
+        .sum();
+    ll - t * t / (2.0 * s) - 0.5 * (1.0 + s * curvature(t).1).ln()
+}
+
+// Negative binomial dispersions in a Laplace marginal: one shared value (Stan's form) or one per
+// observation (beyond Stan Math, which evaluates only the shared form). The covariance is
+// diagonal, so the groups are independent and the marginal is a sum of one dimensional Laplace
+// approximations.
+#[test]
+fn laplace_neg_binomial_dispersions() {
+    let y = [2.0, 0.0, 5.0];
+    for (n_eta, eta) in [(1, vec![1.5]), (3, vec![1.5, 0.7, 3.0])] {
+        let json = format!(
+            r#"{{"n": 3, "k": 2, "y": [2, 0, 5], "g": [1, 1, 2], "n_eta": {n_eta}, "eta": {eta:?}}}"#
+        );
+        let m = fx::laplace_nb_vector::Model::new(&data(&json), 0).unwrap();
+        let phi = |i: usize| if n_eta == 1 { eta[0] } else { eta[i] };
+        for z in [-0.5_f64, 0.0, 0.7] {
+            let s = z.exp();
+            let expected = nb_group_laplace(&y[..2], &[phi(0), phi(1)], s)
+                + nb_group_laplace(&y[2..], &[phi(2)], s);
+            assert_close(m.log_density(&[z], NO_JAC).unwrap(), expected, 1e-8);
+        }
+        let out = m.write_array(&[0.1], true, true, &mut rng()).unwrap();
+        assert_eq!(out.len(), 3);
+        assert!(out[1..].iter().all(|v| v.is_finite()));
+    }
+    let json = r#"{"n": 3, "k": 2, "y": [2, 0, 5], "g": [1, 1, 2], "n_eta": 2, "eta": [1.5, 0.7]}"#;
+    let m = fx::laplace_nb_vector::Model::new(&data(json), 0).unwrap();
+    assert!(m.log_density(&[0.1], FULL).is_err());
 }

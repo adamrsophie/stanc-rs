@@ -131,14 +131,6 @@ impl Gen {
         )?;
         let mut pre = cov.code.clone();
         let mut errs = vec![cov.name.clone()];
-        if builtin == Some("neg_binomial_2_log") && !matches!(args[2].ty, U::Int | U::Real) {
-            return Err(unsupported(
-                args[2].span,
-                format!(
-                    "'{name}' with a non-scalar dispersion is not supported by stanmath-rs yet"
-                ),
-            ));
-        }
         let call = if let Some(l) = builtin {
             let y = self.expr(&args[0])?;
             let idx = self.expr(&args[1])?;
@@ -146,9 +138,16 @@ impl Gen {
                 "{idx}.iter().map(|i__| rt::stan::usize_of(*i__ - 1)).collect::<rt::Result<Vec<usize>>>()?"
             );
             let mut rest = Vec::new();
-            for a in &args[2..hbs_at] {
+            for (k, a) in args[2..hbs_at].iter().enumerate() {
                 let c = self.expr_as(a, &a.ty, &ad.clone().fill_for(&a.ty))?;
-                rest.push(if a.ty == U::Real { c } else { format!("&{c}") });
+                rest.push(if a.ty == U::Real {
+                    c
+                } else if k == 0 && l == "neg_binomial_2_log" {
+                    // One dispersion shared by all observations, or one per observation.
+                    format!("&({c})[..]")
+                } else {
+                    format!("&{c}")
+                });
             }
             let mut f = name.to_string();
             if l == "neg_binomial_2_log" {
