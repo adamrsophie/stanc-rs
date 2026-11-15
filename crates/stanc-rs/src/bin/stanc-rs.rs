@@ -11,6 +11,7 @@ USAGE:
     stanc-rs compile <file.stan> [--output <file.rs>] [options]
     stanc-rs ast     <file.stan> [options]
     stanc-rs ir      <file.stan> [options]
+    stanc-rs info    <file.stan> [options]   (variables and calls as JSON, as stanc3 --info)
     stanc-rs format  <file.stan> [options]
 
 OPTIONS:
@@ -100,6 +101,11 @@ fn run(args: Vec<String>) -> Result<(), String> {
             let c = stanc_rs::check_source(&file, &text, &opts)?;
             print_warnings(&c.warnings);
             println!("{:#?}", c.typed);
+        }
+        "info" => {
+            let c = stanc_rs::check_source(&file, &text, &opts)?;
+            print_warnings(&c.warnings);
+            print!("{}", c.info());
         }
         "format" => {
             let (p, _) = stanc_rs::parse(&file, &text, &opts)?;

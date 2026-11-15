@@ -19,6 +19,8 @@
 
 use std::path::{Path, PathBuf};
 
+mod info;
+
 pub use stanc_rs_codegen as codegen;
 pub use stanc_rs_semantic as semantic;
 pub use stanc_rs_syntax as syntax;
@@ -45,6 +47,15 @@ pub struct Checked {
     pub typed: TProgram,
     /// Rendered warnings.
     pub warnings: Vec<String>,
+    /// The files pulled in by `#include`, in the order they were read.
+    pub included_files: Vec<String>,
+}
+
+impl Checked {
+    /// Model information as JSON, with the content of stanc3's `--info`.
+    pub fn info(&self) -> String {
+        info::info_json(&self.typed, &self.included_files)
+    }
 }
 
 /// A successfully compiled program.
@@ -114,10 +125,12 @@ pub fn check_source(name: &str, text: &str, opts: &Options) -> Result<Checked, S
         .iter()
         .map(|w| w.render(&sources))
         .collect();
+    let included_files = sources.files[1..].iter().map(|f| f.name.clone()).collect();
     Ok(Checked {
         ast,
         typed: checked.program,
         warnings,
+        included_files,
     })
 }
 
