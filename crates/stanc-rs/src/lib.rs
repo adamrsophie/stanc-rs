@@ -66,17 +66,42 @@ pub struct Compiled {
     pub warnings: Vec<String>,
 }
 
-/// Finds `#include` files in a list of directories.
-struct FileIncludes<'a>(&'a [PathBuf]);
+/// Finds `#include` files in the include paths, then in the directory of the main file. As in
+/// stanc3, messages list only the include paths.
+struct FileIncludes<'a> {
+    paths: &'a [PathBuf],
+    main_dir: PathBuf,
+}
+
+impl<'a> FileIncludes<'a> {
+    fn new(name: &str, opts: &'a Options) -> Self {
+        let dir = Path::new(name).parent().unwrap_or(Path::new(""));
+        FileIncludes {
+            paths: &opts.include_paths,
+            main_dir: if dir.as_os_str().is_empty() {
+                PathBuf::from(".")
+            } else {
+                dir.to_path_buf()
+            },
+        }
+    }
+}
 
 impl IncludeResolver for FileIncludes<'_> {
     fn resolve(&self, name: &str) -> Option<(String, String)> {
-        self.0.iter().find_map(|dir| {
-            let p = dir.join(name);
-            std::fs::read_to_string(&p)
-                .ok()
-                .map(|text| (p.display().to_string(), text))
-        })
+        self.paths
+            .iter()
+            .chain(std::iter::once(&self.main_dir))
+            .find_map(|dir| {
+                let p = dir.join(name);
+                std::fs::read_to_string(&p)
+                    .ok()
+                    .map(|text| (p.display().to_string(), text))
+            })
+    }
+
+    fn search_paths(&self) -> Vec<String> {
+        self.paths.iter().map(|p| p.display().to_string()).collect()
     }
 }
 
@@ -99,13 +124,8 @@ pub fn default_model_name(file_name: &str) -> String {
 /// Parses a program; errors are rendered with source context.
 pub fn parse(name: &str, text: &str, opts: &Options) -> Result<(Program, SourceMap), String> {
     let functions_only = name.ends_with(".stanfunctions");
-    stanc_rs_syntax::parse_with(
-        name,
-        text,
-        &FileIncludes(&opts.include_paths),
-        functions_only,
-    )
-    .map_err(|(d, sources)| d.render(&sources))
+    stanc_rs_syntax::parse_with(name, text, &FileIncludes::new(name, opts), functions_only)
+        .map_err(|(d, sources)| d.render(&sources))
 }
 
 /// Parses and type checks a program.

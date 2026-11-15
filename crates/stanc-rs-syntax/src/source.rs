@@ -43,6 +43,8 @@ pub struct SourceFile {
     pub name: String,
     /// Full text.
     pub text: String,
+    /// Where this file was included from: the `#include` directive in the including file.
+    pub included_from: Option<Span>,
     line_starts: Vec<usize>,
 }
 
@@ -59,6 +61,7 @@ impl SourceFile {
         SourceFile {
             name: name.into(),
             text,
+            included_from: None,
             line_starts,
         }
     }
@@ -73,6 +76,27 @@ impl SourceFile {
         let start = self.line_starts[line];
         let col = self.text[start..offset].chars().count();
         (line + 1, col + 1)
+    }
+
+    /// One-based line and zero-based byte column of a byte offset, as stanc3 reports them.
+    pub fn line_byte_col(&self, offset: usize) -> (usize, usize) {
+        let offset = offset.min(self.text.len());
+        let line = match self.line_starts.binary_search(&offset) {
+            Ok(l) => l,
+            Err(l) => l - 1,
+        };
+        (line + 1, offset - self.line_starts[line])
+    }
+
+    /// Number of lines, not counting an empty line after a final terminator.
+    pub fn line_count(&self) -> usize {
+        if self.text.is_empty() {
+            0
+        } else if self.text.ends_with('\n') {
+            self.line_starts.len() - 1
+        } else {
+            self.line_starts.len()
+        }
     }
 
     /// Text of a one-based line without its terminator.
@@ -142,14 +166,103 @@ pub enum DiagnosticKind {
 impl DiagnosticKind {
     fn label(self) -> &'static str {
         match self {
-            DiagnosticKind::Lexical => "Syntax error (lexical)",
-            DiagnosticKind::Syntax => "Syntax error",
+            DiagnosticKind::Lexical | DiagnosticKind::Syntax | DiagnosticKind::Include => {
+                "Syntax error"
+            }
             DiagnosticKind::Semantic => "Semantic error",
             DiagnosticKind::Unsupported => "Unsupported feature",
             DiagnosticKind::Internal => "Internal compiler error",
             DiagnosticKind::Warning => "Warning",
-            DiagnosticKind::Include => "Include error",
         }
+    }
+
+    /// The kind of syntax error stanc3 names after the location.
+    fn syntax_kind(self) -> Option<&'static str> {
+        match self {
+            DiagnosticKind::Lexical => Some("lexing error"),
+            DiagnosticKind::Syntax => Some("parsing error"),
+            DiagnosticKind::Include => Some("include error"),
+            _ => None,
+        }
+    }
+}
+
+impl SourceMap {
+    /// A location as stanc3 prints it: `'file', line L, column C`, followed by the chain of
+    /// files it was included from.
+    fn pp_location(&self, file: u32, offset: usize, out: &mut String) {
+        let f = &self.files[file as usize];
+        let (l, c) = f.line_byte_col(offset);
+        let _ = write!(out, "'{}', line {l}, column {c}", f.name);
+        if let Some(inc) = f.included_from {
+            out.push_str(", included from\n");
+            self.pp_location(inc.file, inc.start as usize, out);
+        }
+    }
+
+    /// A span as stanc3 prints it: the start, then ` to` the end unless the two are equal or
+    /// the start is in an included file.
+    pub fn pp_span(&self, span: Span) -> String {
+        let mut out = String::new();
+        self.pp_location(span.file, span.start as usize, &mut out);
+        let f = &self.files[span.file as usize];
+        let (l0, c0) = f.line_byte_col(span.start as usize);
+        let (l1, c1) = f.line_byte_col(span.end as usize);
+        if f.included_from.is_none() && (l0, c0) != (l1, c1) {
+            if l0 == l1 {
+                let _ = write!(out, " to column {c1}");
+            } else {
+                let _ = write!(out, " to line {l1}, column {c1}");
+            }
+        }
+        out
+    }
+
+    /// The source excerpt stanc3 prints under a location: two lines either side and a caret.
+    pub fn pp_context(&self, file: u32, offset: usize) -> String {
+        let f = &self.files[file as usize];
+        let (line, col) = f.line_byte_col(offset);
+        let n = f.line_count();
+        let at_eof = line == n + 1;
+        let get = |i: usize| -> Option<&str> {
+            if at_eof && i == line {
+                Some("")
+            } else if i == 0 || i > n {
+                None
+            } else {
+                Some(f.line_text(i))
+            }
+        };
+        let bars = "   -------------------------------------------------\n";
+        let mut out = String::from(bars);
+        let row = |i: usize, out: &mut String| {
+            if let Some(t) = get(i) {
+                let _ = writeln!(out, "{i:>6}:  {t}");
+            }
+        };
+        for i in [line.wrapping_sub(2), line.wrapping_sub(1), line] {
+            row(i, &mut out);
+        }
+        let here = get(line).unwrap_or("");
+        let pad: String = here
+            .bytes()
+            .take(col.min(here.len()))
+            .map(|b| if b == b'\t' { '\t' } else { ' ' })
+            .collect();
+        let _ = writeln!(
+            out,
+            "         {pad}^{}",
+            if at_eof {
+                " (error at end of file)"
+            } else {
+                ""
+            }
+        );
+        for i in [line + 1, line + 2] {
+            row(i, &mut out);
+        }
+        out.push_str(bars);
+        out
     }
 }
 
@@ -198,38 +311,22 @@ impl Diagnostic {
         self.kind != DiagnosticKind::Warning
     }
 
-    /// Renders the diagnostic with a source excerpt and a caret line.
+    /// Renders the diagnostic as stanc3 does: a header with the location, a source excerpt
+    /// with a caret, and the message.
     pub fn render(&self, sources: &SourceMap) -> String {
         let mut out = String::new();
         let span = self
             .span
-            .and_then(|s| sources.files.get(s.file as usize).map(|f| (s, f)));
+            .filter(|s| (s.file as usize) < sources.files.len());
         match span {
-            Some((s, f)) => {
-                let (line, col) = f.line_col(s.start as usize);
-                // Columns are zero-based in messages, as in stanc3.
-                let _ = writeln!(
-                    out,
-                    "{} in '{}', line {}, column {}:",
-                    self.kind.label(),
-                    f.name,
-                    line,
-                    col - 1
-                );
-                let first = line.saturating_sub(2).max(1);
-                let _ = writeln!(out, "   -------------------------------------------------");
-                for l in first..=line {
-                    let _ = writeln!(out, "{:>5}:  {}", l, f.line_text(l));
+            Some(s) => {
+                let _ = write!(out, "{} in {}", self.kind.label(), sources.pp_span(s));
+                if let Some(k) = self.kind.syntax_kind() {
+                    let _ = write!(out, ", {k}");
                 }
-                let (end_line, end_col) = f.line_col((s.end as usize).max(s.start as usize));
-                let width = if end_line == line {
-                    end_col.saturating_sub(col).max(1)
-                } else {
-                    1
-                };
-                let _ = writeln!(out, "         {}{}", " ".repeat(col - 1), "^".repeat(width));
-                let _ = writeln!(out, "   -------------------------------------------------");
-                let _ = writeln!(out);
+                out.push_str(":\n");
+                out.push_str(&sources.pp_context(s.file, s.start as usize));
+                out.push('\n');
             }
             None => {
                 let _ = writeln!(out, "{}:", self.kind.label());
@@ -237,7 +334,7 @@ impl Diagnostic {
         }
         let _ = writeln!(out, "{}", self.message);
         for n in &self.notes {
-            let _ = writeln!(out, "  note: {n}");
+            let _ = writeln!(out, "{n}");
         }
         out
     }

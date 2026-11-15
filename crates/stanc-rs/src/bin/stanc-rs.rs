@@ -27,7 +27,12 @@ fn main() -> ExitCode {
     match run(std::env::args().skip(1).collect()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(msg) => {
-            eprintln!("{msg}");
+            // Rendered diagnostics end with a newline; other messages do not.
+            if msg.ends_with('\n') {
+                eprint!("{msg}");
+            } else {
+                eprintln!("{msg}");
+            }
             ExitCode::FAILURE
         }
     }
@@ -71,13 +76,6 @@ fn run(args: Vec<String>) -> Result<(), String> {
         return Err(USAGE.to_string());
     };
     let text = std::fs::read_to_string(&file).map_err(|e| format!("cannot read '{file}': {e}"))?;
-    if let Some(dir) = std::path::Path::new(&file).parent() {
-        opts.include_paths.push(if dir.as_os_str().is_empty() {
-            PathBuf::from(".")
-        } else {
-            dir.to_path_buf()
-        });
-    }
     let print_warnings = |ws: &[String]| ws.iter().for_each(|w| eprintln!("{w}"));
     match cmd.as_str() {
         "check" => {

@@ -295,6 +295,11 @@ pub struct Token {
 pub trait IncludeResolver {
     /// Returns the display name and contents of the file named `name`, or `None` if not found.
     fn resolve(&self, name: &str) -> Option<(String, String)>;
+
+    /// The directories searched, for the message when a file is not found.
+    fn search_paths(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// A resolver that finds nothing.
@@ -433,14 +438,6 @@ fn lex_file(
                 }
                 (text[j..k].to_string(), k)
             };
-            if stack.contains(&name) {
-                return Err(err(
-                    DiagnosticKind::Include,
-                    start,
-                    end,
-                    format!("File {name} recursively included itself."),
-                ));
-            }
             if stack.len() > MAX_INCLUDE_DEPTH {
                 return Err(err(
                     DiagnosticKind::Include,
@@ -450,14 +447,46 @@ fn lex_file(
                 ));
             }
             let Some((display, contents)) = resolver.resolve(&name) else {
+                let paths = resolver.search_paths();
+                let paths = if paths.is_empty() {
+                    "None".to_string()
+                } else {
+                    paths.join(", ")
+                };
                 return Err(err(
                     DiagnosticKind::Include,
                     start,
                     end,
-                    format!("Could not find include file '{name}' in specified include paths."),
+                    format!(
+                        "Could not find include file '{name}' in specified include paths.\n\
+                         Current include paths: {paths}"
+                    ),
                 ));
             };
-            let id = sources.add(SourceFile::new(display, contents));
+            // As stanc3: the directive is an error when the file containing it also appears
+            // among the files it was included from.
+            let mut ancestor = sources.files[file as usize].included_from;
+            while let Some(a) = ancestor {
+                if sources.files[a.file as usize].name == sources.files[file as usize].name {
+                    return Err(err(
+                        DiagnosticKind::Include,
+                        start,
+                        end,
+                        format!("File {name} recursively included itself."),
+                    ));
+                }
+                ancestor = sources.files[a.file as usize].included_from;
+            }
+            // A `.stanfunctions` file included a second time contributes nothing.
+            if display.ends_with(".stanfunctions")
+                && sources.files[1..].iter().any(|f| f.name == display)
+            {
+                i = end;
+                continue;
+            }
+            let mut inc = SourceFile::new(display, contents);
+            inc.included_from = Some(Span::new(file, start, end));
+            let id = sources.add(inc);
             stack.push(name);
             lex_file(sources, id, resolver, stack, out)?;
             stack.pop();
