@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use stanc_rs_syntax::ast::*;
 use stanc_rs_syntax::{Diagnostic, DiagnosticKind, Span};
 
-use stanc_rs_syntax::format::{BoxKind, Formatter};
+use stanc_rs_syntax::format::Formatter;
 
 use crate::mismatch::{self, Sig};
 use crate::signatures::{self, Signature};
@@ -212,8 +212,11 @@ pub fn check_program(p: &Program, opts: &CheckOptions) -> Result<Checked, Diagno
                         .any(|e| matches!(e.kind, EntryKind::UserDeclared) && e.ty == ty);
                     if declared_only {
                         return err(
-                            s.span,
-                            format!("Function '{}' is declared but not defined.", name.name),
+                            name.span,
+                            format!(
+                                "Function {} is declared without specifying a definition.",
+                                q(&name.name)
+                            ),
                         );
                     }
                 }
@@ -280,7 +283,7 @@ enum Match {
         kind: FunKind,
         promotions: Vec<Promotion>,
     },
-    Ambiguous,
+    Ambiguous(Vec<Sig>),
     Errors(Vec<(Sig, Mismatch)>),
 }
 
@@ -395,8 +398,8 @@ impl Checker {
             return err(
                 id.span,
                 format!(
-                    "Identifier '{}' has a _lupdf/_lupmf suffix, which is only allowed for functions.",
-                    id.name
+                    "Identifier {} has a _lupdf/_lupmf suffix, which is only allowed for functions.",
+                    q(&id.name)
                 ),
             );
         }
@@ -599,10 +602,25 @@ impl Checker {
                     }
                     _ => err(
                         span,
-                        format!(
-                            "Ill-typed arguments supplied to ? : operator. Available signatures: (int, T, T) => T. Instead supplied arguments of incompatible type: {}, {}, {}.",
-                            pc.ty, ta.ty, tb.ty
-                        ),
+                        if pc.ty != UnsizedType::Int {
+                            format!(
+                                "@[Condition in ternary expression must be type int.@ Instead found type {}.@]",
+                                ty(&pc.ty)
+                            )
+                        } else if function_part(&ta.ty).is_some()
+                            && !matches!(ta.ty, UnsizedType::Tuple(_))
+                        {
+                            format!(
+                                "Ternary expression cannot have a function type: {}",
+                                ty(&ta.ty)
+                            )
+                        } else {
+                            format!(
+                                "Type mismatch in ternary expression, expression when true is: {}; expression when false is: {}",
+                                ty(&ta.ty),
+                                ty(&tb.ty)
+                            )
+                        },
                     ),
                 }
             }
@@ -627,9 +645,10 @@ impl Checker {
                     _ => err(
                         span,
                         format!(
-                            "Ill-typed arguments supplied to prefix operator {}. Available signatures are not compatible with argument type {}.",
+                            "Ill-typed arguments supplied to prefix operator {}. Available signatures: {}@[<h>Instead supplied argument of incompatible type: {}.@]",
                             op.symbol(),
-                            ta.ty
+                            operator_sigs(key),
+                            ty(&ta.ty)
                         ),
                     ),
                 }
@@ -644,8 +663,9 @@ impl Checker {
                     _ => err(
                         span,
                         format!(
-                            "Ill-typed arguments supplied to postfix operator '. Available signatures are not compatible with argument type {}.",
-                            ta.ty
+                            "Ill-typed arguments supplied to postfix operator '. Available signatures: {}\nInstead supplied argument of incompatible type: {}.",
+                            operator_sigs("'"),
+                            ty(&ta.ty)
                         ),
                     ),
                 }
@@ -660,7 +680,11 @@ impl Checker {
                     Diagnostic::new(
                         DiagnosticKind::Semantic,
                         bad.span,
-                        format!("Array expression must have entries of consistent type. Expected {} but found {}.", ty, bad.ty),
+                        layout(&format!(
+                            "Array expression must have entries of consistent type. Expected {} but found {}.",
+                            self::ty(&ty),
+                            self::ty(&bad.ty)
+                        )),
                     )
                 })?;
                 let pes: Vec<TExpr> = tes
@@ -695,7 +719,7 @@ impl Checker {
                             return err(
                                 span,
                                 format!(
-                                    "Tried to access index {} for a tuple of length {}.\nOnly indices indices between 1 and {} are valid.",
+                                    "Tried to access index {} for a tuple of length {}.@ Only indices between 1 and {} are valid.",
                                     k,
                                     ts.len(),
                                     ts.len()
@@ -713,8 +737,8 @@ impl Checker {
                     _ => err(
                         span,
                         format!(
-                            "Attempting to index a tuple, but the expression has type {}.",
-                            ta.ty
+                            "Tried to index a non-tuple type. Expression has type {}.",
+                            ty(&ta.ty)
                         ),
                     ),
                 }
@@ -755,13 +779,13 @@ impl Checker {
                     bad.span,
                     if kind == 2 {
                         format!(
-                            "Row_vector expression must have all int or real entries. Found type {}.",
-                            bad.ty
+                            "@[Row vector expression must have all int,@ real,@ or complex entries.@ Instead found type {}.@]",
+                            ty(&bad.ty)
                         )
                     } else {
                         format!(
-                            "Matrix expression must have all row_vector entries. Found type {}.",
-                            bad.ty
+                            "@[Matrix expression must have all row_vector or complex_row_vector entries.@ Instead found type {}.@]",
+                            ty(&bad.ty)
                         )
                     },
                 );
@@ -819,8 +843,8 @@ impl Checker {
                 return err(
                     t.span,
                     format!(
-                        "Range bound must be of type int. Instead found type {}.",
-                        t.ty
+                        "@[Range bound must be of type int.@ Instead found type {}.@]",
+                        ty(&t.ty)
                     ),
                 );
             }
@@ -855,6 +879,7 @@ impl Checker {
         let entries = self.env.find(&lookup);
         if signatures::is_unnormalized(&id.name)
             && !(ctx.in_udf_dist() || ctx.block == Origin::Model)
+            && (!entries.is_empty() || signatures::is_stan_math_function(&lookup))
         {
             return err(id.span, unnormalized_error(&id.name));
         }
@@ -970,8 +995,11 @@ impl Checker {
             _ => err(
                 span,
                 format!(
-                    "Ill-typed arguments supplied to infix operator {}. Available signatures do not accept argument types {}, {}.",
-                    key, l.ty, r.ty
+                    "Ill-typed arguments supplied to infix operator {}. Available signatures: {}@[<h>Instead supplied arguments of incompatible type: {}, {}.@]",
+                    key,
+                    operator_sigs(key),
+                    ty(&l.ty),
+                    ty(&r.ty)
                 ),
             ),
         }
@@ -1097,13 +1125,17 @@ impl Checker {
         if cond && !has_cond_suffix {
             return err(
                 span,
-                "Only functions with names ending in _lpdf, _lupdf, _lpmf, _lupmf, _cdf, _lcdf, _lccdf can make use of conditional notation.",
+                layout_text(
+                    "Only functions with names ending in _lpdf, _lupdf, _lpmf, _lupmf, _cdf, _lcdf, _lccdf can make use of conditional notation.",
+                ),
             );
         }
         if !cond && has_cond_suffix {
             return err(
                 span,
-                "Probability functions with suffixes _lpdf, _lupdf, _lpmf, _lupmf, _cdf, _lcdf and _lccdf, require a vertical bar (|) between the first two arguments.",
+                layout_text(
+                    "Probability functions with suffixes _lpdf, _lupdf, _lpmf, _lupmf, _cdf, _lcdf and _lccdf, require a vertical bar (|) between the first two arguments.",
+                ),
             );
         }
         let args = match &res.kind {
@@ -1286,13 +1318,7 @@ impl Checker {
                     span,
                 ))
             }
-            Match::Ambiguous => err(
-                span,
-                format!(
-                    "No unique minimum promotion found for function '{}'. Overloaded functions must not have multiple equally valid promotion paths for a given set of arguments.",
-                    id.name
-                ),
-            ),
+            Match::Ambiguous(sigs) => err(span, ambiguous(&id.name, Some(&tes), &sigs)),
             Match::Errors(errs) => Err(self.signature_error(span, &id.name, &tes, errs)),
         }
     }
@@ -1350,6 +1376,17 @@ impl Checker {
                 return Err(self.variadic_error(span, &id.name, &tes, e, v.fn_ret));
             }
         };
+        if function_part(&tes[0].ty).is_none() {
+            let e = check_variadic_args(
+                false,
+                &v.control_args,
+                &v.fn_args,
+                &v.fn_ret,
+                &arg_types(&tes),
+            )
+            .expect_err("not a function");
+            return Err(self.variadic_error(span, &id.name, &tes, e, v.fn_ret));
+        }
         let rest = arg_types(&tes[1..]);
         let mut matches = Vec::new();
         let mut errs = Vec::new();
@@ -1389,13 +1426,11 @@ impl Checker {
         };
         let mut best: Vec<_> = matches.into_iter().filter(|m| m.0 == min).collect();
         if best.len() > 1 {
-            return err(
-                span,
-                format!(
-                    "No unique minimum promotion found for function '{}'.",
-                    fid.name
-                ),
-            );
+            let sigs: Vec<Sig> = best
+                .iter()
+                .map(|b| (b.1.ret.clone(), b.1.args.clone()))
+                .collect();
+            return err(span, ambiguous(&fid.name, None, &sigs));
         }
         let (_, ft, ps) = best.pop().expect("one");
         let mut it = tes.into_iter();
@@ -1473,8 +1508,8 @@ impl Checker {
             return err(
                 slice.span,
                 format!(
-                    "The first argument to reduce_sum must be an array, found {}.",
-                    slice.ty
+                    "The second argument to reduce_sum must be an array.@ Instead found type {}.",
+                    ty(&slice.ty)
                 ),
             );
         }
@@ -1489,10 +1524,14 @@ impl Checker {
             return err(
                 slice.span,
                 format!(
-                    "The first argument to reduce_sum must be an array of int, real, vector, row_vector, or matrix, found {}.",
-                    slice.ty
+                    "The inner type in reduce_sum array must be real,@ int,@ matrix,@ vector,@ or row_vector.@ Instead found type {}.",
+                    ty(inner)
                 ),
             );
+        }
+        if function_part(&tes[0].ty).is_none() {
+            let e = basic(&tes);
+            return Err(self.variadic_error(span, &id.name, &tes, e, Real));
         }
         let rest = arg_types(&tes[1..]);
         let mut matches = Vec::new();
@@ -1634,13 +1673,11 @@ impl Checker {
         };
         let mut best: Vec<_> = best.into_iter().filter(|b| b.0 == min).collect();
         if best.len() > 1 {
-            return err(
-                fname.span,
-                format!(
-                    "No unique minimum promotion found for function '{}'.",
-                    fname.name
-                ),
-            );
+            let sigs: Vec<Sig> = best
+                .iter()
+                .map(|b| (b.1.ret.clone(), b.1.args.clone()))
+                .collect();
+            return err(fname.span, ambiguous(&fname.name, None, &sigs));
         }
         let (_, ft, ps) = best.pop().expect("one");
         let f = texpr(
@@ -1959,24 +1996,36 @@ impl Checker {
                         return err(
                             s.span,
                             format!(
-                                "Function '{}' has already been declared with the same arguments but a different return type.",
-                                name.name
+                                "Function {} cannot be overloaded by return type only. Previously used return type {}",
+                                q(&name.name),
+                                ft.ret.as_ref().map_or("void".to_string(), self::ty)
                             ),
                         );
                     }
                     return err(
                         s.span,
                         format!(
-                            "Function '{}' has already been declared for signature {}.",
-                            name.name, ty
+                            "Function {} has already been declared for signature {}",
+                            q(&name.name),
+                            self::ty(&ty)
                         ),
                     );
                 }
             }
-            if signatures::lookup(&name.name)
+            if let Some(sig) = signatures::lookup(&name.name)
                 .iter()
-                .any(|sig| same_args(&sig.args))
+                .find(|sig| same_args(&sig.args))
             {
+                if sig.ret != *ret {
+                    return err(
+                        s.span,
+                        format!(
+                            "Function {} cannot be overloaded by return type only. Previously used return type {}",
+                            q(&name.name),
+                            sig.ret.as_ref().map_or("void".to_string(), self::ty)
+                        ),
+                    );
+                }
                 return err(
                     s.span,
                     format!(
@@ -1990,8 +2039,8 @@ impl Checker {
             return err(
                 s.span,
                 format!(
-                    "Function '{}' has already been declared to have this signature.",
-                    name.name
+                    "Function {} has already been declared. A definition is expected.",
+                    q(&name.name)
                 ),
             );
         }
@@ -2008,8 +2057,8 @@ impl Checker {
             return err(
                 name.span,
                 format!(
-                    "Identifier '{}' has a _lupdf/_lupmf suffix, which is only allowed for functions.",
-                    name.name
+                    "@[{} is an invalid user-defined function name.@ User-defined probability mass and density functions must@ be defined as normalized@ (function names should end@ with@ _lpdf/_lpmf not _lupdf/_lupmf).@]",
+                    q(&name.name)
                 ),
             );
         }
@@ -2083,7 +2132,10 @@ impl Checker {
         if t.ty != UnsizedType::Int {
             return err(
                 t.span,
-                format!("{what} must be of type int. Instead found type {}.", t.ty),
+                format!(
+                    "@[{what} must be of type int.@ Instead found type {}.@]",
+                    ty(&t.ty)
+                ),
             );
         }
         Ok(t)
@@ -2111,7 +2163,7 @@ impl Checker {
                 _ => {
                     return err(
                         span,
-                        "Void return statements may only be used inside non-returning function definitions.",
+                        "Empty return statements may only be used inside void function definitions.",
                     );
                 }
             },
@@ -2138,7 +2190,7 @@ impl Checker {
                 _ => {
                     return err(
                         span,
-                        "Expression return statements may only be used inside returning function definitions.",
+                        "Expression return statements may only be used inside non-void definitions.",
                     );
                 }
             },
@@ -2169,8 +2221,8 @@ impl Checker {
                     return err(
                         span,
                         format!(
-                            "A real, int, or container of those was expected. Instead found type {}.",
-                            te.ty
+                            "@[A (container of) real or int was expected.@ Instead found type {}.@]",
+                            ty(&te.ty)
                         ),
                     );
                 }
@@ -2191,8 +2243,8 @@ impl Checker {
                     return err(
                         span,
                         format!(
-                            "A real, int, or container of those was expected. Instead found type {}.",
-                            te.ty
+                            "@[A (container of) real or int was expected.@ Instead found type {}.@]",
+                            ty(&te.ty)
                         ),
                     );
                 }
@@ -2262,14 +2314,8 @@ impl Checker {
                             ),
                         );
                     }
-                    Match::Ambiguous => {
-                        return err(
-                            span,
-                            format!(
-                                "No unique minimum promotion found for function '{}'.",
-                                id.name
-                            ),
-                        );
+                    Match::Ambiguous(sigs) => {
+                        return err(span, ambiguous(&id.name, Some(&tes), &sigs));
                     }
                     Match::Errors(errs) => {
                         return Err(self.signature_error(span, &id.name, &tes, errs));
@@ -2360,7 +2406,8 @@ impl Checker {
                         return err(
                             te.span,
                             format!(
-                                "Foreach-loop must be over array, vector, row_vector or matrix. Instead found expression of type {t}."
+                                "@[Foreach-loop must be over array, vector,@ row_vector,@ or matrix.@ Instead found type {}.@]",
+                                ty(t)
                             ),
                         );
                     }
@@ -2543,16 +2590,17 @@ impl Checker {
                     (UnsizedType::Tuple(ts), _) => err(
                         span,
                         format!(
-                            "Tried to access index {} for a tuple of length {}.",
+                            "Tried to access index {} for a tuple of length {}.@ Only indices between 1 and {} are valid.",
                             k,
+                            ts.len(),
                             ts.len()
                         ),
                     ),
                     _ => err(
                         span,
                         format!(
-                            "Attempting to index a tuple, but the expression has type {}.",
-                            t.ty
+                            "Tried to index a non-tuple type. Expression has type {}.",
+                            ty(&t.ty)
                         ),
                     ),
                 }
@@ -2609,17 +2657,6 @@ impl Checker {
         let tr = self.check_expr(ctx, rhs)?;
         let rhs = match op {
             AssignOp::Assign => {
-                if let Some(ft) = function_part(&tr.ty) {
-                    let name = lvalue_base_name(&tl).unwrap_or_default();
-                    return err(
-                        span,
-                        format!(
-                            "Cannot assign a function type ({}) to variable {}.",
-                            ty(ft),
-                            q(name)
-                        ),
-                    );
-                }
                 // stanc3 warns when the right side, without outer parentheses, is the left side.
                 let mut bare = rhs;
                 while let ExprKind::Paren(e) = &bare.kind {
@@ -2632,27 +2669,13 @@ impl Checker {
                         "Assignment of variable to itself.",
                     ));
                 }
-                let p = assign_promotion(&tl, &tr).ok_or_else(|| {
-                    Diagnostic::new(
-                        DiagnosticKind::Semantic,
-                        tr.span,
-                        illtyped_assignment(&tl.ty, &tr.ty),
-                    )
-                })?;
+                let p = assign_promotion(&tl, &tr.ty, &tr.ad, tr.span, span)?;
                 promote(tr, &p)
             }
             AssignOp::Compound(bop) => {
                 let ok = self.compound_assign_ok(bop, &tl, &tr);
                 if !ok {
-                    return err(
-                        tr.span,
-                        format!(
-                            "Ill-typed arguments supplied to assignment operator {}=: lhs has type {} and rhs has type {}.",
-                            bop.symbol(),
-                            tl.ty,
-                            tr.ty
-                        ),
-                    );
+                    return err(tr.span, illtyped_compound_assignment(bop, &tl.ty, &tr.ty));
                 }
                 tr
             }
@@ -2721,7 +2744,7 @@ impl Checker {
         {
             return err(
                 dist.span,
-                "~ statement should refer to a distribution without its \"_lpdf/_lupdf\" or \"_lpmf/_lupmf\" suffix.\nFor example, \"target += normal_lpdf(y | 0, 1)\" should become \"y ~ normal(0, 1).\"",
+                "~ statement should refer to a distribution without its \"_lpdf/_lupdf\" or \"_lpmf/_lupmf\" suffix.\nFor example, \"target += normal_lpdf(y, 0, 1)\" should become \"y ~ normal(0, 1).\"",
             );
         }
         if !(ctx.in_lp() || ctx.block == Origin::Model) {
@@ -2734,7 +2757,11 @@ impl Checker {
             return err(
                 span,
                 format!(
-                    "~ statement should refer to a distribution without its \"_cdf\" or \"_ccdf\" suffix. Found '{n}'."
+                    "CDF and CCDF functions may not be used with distribution notation (~). Use target += {}(...) instead.",
+                    n.strip_suffix("_cdf")
+                        .map(|b| format!("{b}_lcdf"))
+                        .or_else(|| n.strip_suffix("_ccdf").map(|b| format!("{b}_lccdf")))
+                        .unwrap_or_else(|| n.to_string())
                 ),
             );
         }
@@ -2773,7 +2800,7 @@ impl Checker {
         }
         let rank = |m: &Match| match m {
             Match::Unique { .. } => 0,
-            Match::Ambiguous => 1,
+            Match::Ambiguous(_) => 1,
             Match::Errors(e) if !e.is_empty() => 2,
             Match::Errors(_) => 3,
         };
@@ -2783,11 +2810,8 @@ impl Checker {
             Match::Unique {
                 kind, promotions, ..
             } => (kind, promotions),
-            Match::Ambiguous => {
-                return err(
-                    span,
-                    format!("No unique minimum promotion found for function '{n}'."),
-                );
+            Match::Ambiguous(sigs) => {
+                return err(span, ambiguous(n, Some(&all), &sigs));
             }
             Match::Errors(errs) if errs.is_empty() => {
                 let int = is_int_type(&all[0].ty);
@@ -2918,10 +2942,18 @@ impl Checker {
             } else {
                 err(
                     te.span,
-                    format!(
-                        "{what} must be a scalar or of type {ut}. Instead found type {}.",
-                        te.ty
-                    ),
+                    if is_scalar(ut) {
+                        format!(
+                            "@[{what} must be a scalar.@ Instead found type {}.@]",
+                            ty(&te.ty)
+                        )
+                    } else {
+                        format!(
+                            "@[{what} must be a scalar or of type {}.@ Instead found type {}.@]",
+                            ty(ut),
+                            ty(&te.ty)
+                        )
+                    },
                 )
             }
         };
@@ -3086,8 +3118,12 @@ impl Checker {
             return err(
                 span,
                 format!(
-                    "Real return type required for probability functions ending in _log, _lpdf, _lupdf, _lpmf, _lupmf, _cdf, _lcdf or _lccdf. Found {}.",
-                    ret.as_ref().map(|t| t.to_string()).unwrap_or("void".into())
+                    "@[Real return type required for probability functions ending in _lpdf, _lupdf, _lpmf, _lupmf, _cdf, _lcdf, or _lccdf.@ {}@]",
+                    ret.as_ref()
+                        .map_or("Instead found a void function.".to_string(), |t| format!(
+                            "Instead found type {}.",
+                            ty(t)
+                        ))
                 ),
             );
         }
@@ -3098,8 +3134,9 @@ impl Checker {
                     return err(
                         span,
                         format!(
-                            "Probability density functions require real variates (first argument). Instead found type {}.",
-                            a.map(|a| a.ty.to_string()).unwrap_or_default()
+                            "@[Probability density functions require real variates (first argument).{}@]",
+                            a.map(|a| format!("@ Instead found type {}.", ty(&a.ty)))
+                                .unwrap_or_default()
                         ),
                     );
                 }
@@ -3128,8 +3165,8 @@ impl Checker {
                 return err(
                     span,
                     format!(
-                        "All function arguments must have distinct identifiers. Found duplicate '{}'.",
-                        a.ident.name
+                        "@[All function arguments must have distinct identifiers.@ Argument {} is duplicated.@]",
+                        q(&a.ident.name)
                     ),
                 );
             }
@@ -3245,8 +3282,43 @@ fn resolve<'a>(
                 promotions,
             }
         }
-        _ => Match::Ambiguous,
+        _ => {
+            let mut sigs: Vec<Sig> = best
+                .iter()
+                .map(|b| (b.1.ret.clone(), b.1.args.clone()))
+                .collect();
+            sigs.sort_by(|a, b| mismatch::compare_return(&a.0, &b.0));
+            Match::Ambiguous(sigs)
+        }
     }
+}
+
+/// stanc3's `AmbiguousFunctionPromotion`.
+fn ambiguous(name: &str, args: Option<&[TExpr]>, sigs: &[Sig]) -> String {
+    let who = match args {
+        Some(es) => format!(
+            "For args @[({})@], this",
+            es.iter().map(|e| ty(&e.ty)).collect::<Vec<_>>().join(",@ ")
+        ),
+        None => "This".to_string(),
+    };
+    let sigs = sigs
+        .iter()
+        .map(|(ret, args)| {
+            let args: Vec<(Ad, UnsizedType)> =
+                args.iter().map(|(a, t)| ((*a).into(), t.clone())).collect();
+            format!(
+                "@[<hov>(@[<hov>{}@]) => {}@]",
+                fun_args(&args),
+                ret.as_ref().map_or("void".to_string(), ty)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("@,");
+    format!(
+        "No unique minimum promotion found for function {}.@ Overloaded functions must not have multiple equally valid promotion paths.@ {who} function has several:@ @[<v>{sigs}@]@ Consider defining a new signature for the exact types needed or@ re-thinking existing definitions.",
+        q(name)
+    )
 }
 
 /// Every function called in a statement: (name, is library function). Function values passed as
@@ -3406,11 +3478,18 @@ fn indexed_type(span: Span, ut: &UnsizedType, idx: &[TIndex]) -> R<UnsizedType> 
         let not_indexable = || {
             err(
                 span,
-                format!(
-                    "Too many indexes, expression dimensions={}, indexes found={}.",
-                    dims_of(orig),
-                    n
-                ),
+                if is_scalar(orig) {
+                    format!(
+                        "Tried to index a scalar type. Expression has type {}.",
+                        ty(orig)
+                    )
+                } else {
+                    format!(
+                        "Too many indices. Expression only has {} dimensions, but received {} indices.",
+                        dims_of(orig),
+                        n
+                    )
+                },
             )
         };
         Ok(match (t, idx) {
@@ -3472,31 +3551,47 @@ fn indexed_ad(base: &Ad, ty: &UnsizedType, idx: &[TIndex]) -> Ad {
     }
 }
 
-fn assign_promotion(l: &TLValue, r: &TExpr) -> Option<Promotion> {
-    match (&l.kind, &r.ty, &r.ad) {
-        (TLValueKind::Tuple(ls), UnsizedType::Tuple(ts), Ad::Tuple(ads)) => {
+/// stanc3's assignment type check: tuple packs component by component, each against the
+/// matching component of the right hand side.
+fn assign_promotion(
+    l: &TLValue,
+    rty: &UnsizedType,
+    rad: &Ad,
+    rspan: Span,
+    span: Span,
+) -> R<Promotion> {
+    let mismatch = || err(rspan, illtyped_assignment(&l.ty, rty));
+    match &l.kind {
+        TLValueKind::Tuple(ls) => {
+            let (UnsizedType::Tuple(ts), Ad::Tuple(ads)) = (rty, rad) else {
+                return mismatch();
+            };
             if ls.len() != ts.len() {
-                return None;
+                return mismatch();
             }
-            let mut ps = Vec::new();
-            for ((l, t), a) in ls.iter().zip(ts).zip(ads) {
-                let fake = TExpr {
-                    kind: TExprKind::IntLit(0),
-                    ty: t.clone(),
-                    ad: a.clone(),
-                    span: r.span,
-                };
-                ps.push(assign_promotion(l, &fake)?);
-            }
-            Some(Promotion::Tuple(ps))
+            let ps = ls
+                .iter()
+                .zip(ts)
+                .zip(ads)
+                .map(|((l, t), a)| assign_promotion(l, t, a, rspan, span))
+                .collect::<R<Vec<_>>>()?;
+            Ok(Promotion::Tuple(ps))
         }
-        (TLValueKind::Tuple(_), _, _) => None,
         _ => {
-            if is_fun_type(&r.ty) {
-                return None;
+            if let Some(ft) = function_part(rty) {
+                return err(
+                    span,
+                    format!(
+                        "Cannot assign a function type ({}) to variable {}.",
+                        ty(ft),
+                        q(lvalue_base_name(l).unwrap_or_default())
+                    ),
+                );
             }
-            check_same_type(0, &l.ty, &r.ty).ok()?;
-            Some(type_promotion(&l.ad, &l.ty, &r.ad, &r.ty))
+            if check_same_type(0, &l.ty, rty).is_err() {
+                return mismatch();
+            }
+            Ok(type_promotion(&l.ad, &l.ty, rad, rty))
         }
     }
 }
@@ -3510,43 +3605,93 @@ fn lvalue_base_name(l: &TLValue) -> Option<&str> {
 }
 
 fn verify_lvalue_unique(l: &TLValue) -> R<()> {
-    fn flat<'a>(l: &'a TLValue, out: &mut Vec<&'a TLValue>) {
+    /// An assigned place without its indices' expressions (stanc3's untyped lvalue).
+    #[derive(Clone)]
+    enum Place {
+        Var(String),
+        Idx(Box<Place>),
+        Proj(Box<Place>, usize),
+    }
+    fn place(l: &TLValue) -> Place {
         match &l.kind {
-            TLValueKind::Tuple(ls) => ls.iter().for_each(|x| flat(x, out)),
-            _ => out.push(l),
+            TLValueKind::Variable { name, .. } => Place::Var(name.clone()),
+            TLValueKind::Indexed(i, _) => Place::Idx(Box::new(place(i))),
+            TLValueKind::TupleProjection(i, k) => Place::Proj(Box::new(place(i)), *k),
+            TLValueKind::Tuple(_) => Place::Var(String::new()),
         }
     }
-    fn path(l: &TLValue) -> (String, Vec<usize>) {
-        match &l.kind {
-            TLValueKind::Variable { name, .. } => (name.clone(), vec![]),
-            TLValueKind::Indexed(i, _) => path(i),
-            TLValueKind::TupleProjection(i, k) => {
-                let (n, mut p) = path(i);
-                p.push(*k);
-                (n, p)
+    /// stanc3's `lvalues_written_to`: whole tuples count as each of their slots.
+    fn written(l: &TLValue, out: &mut Vec<Place>) {
+        fn slots(p: Place, t: &UnsizedType, out: &mut Vec<Place>) {
+            match t.array_dims().1 {
+                UnsizedType::Tuple(ts) => {
+                    for (i, t) in ts.iter().enumerate() {
+                        slots(Place::Proj(Box::new(p.clone()), i + 1), t, out);
+                    }
+                }
+                _ => out.push(p),
             }
-            TLValueKind::Tuple(_) => (String::new(), vec![]),
+        }
+        match &l.kind {
+            TLValueKind::Tuple(ls) => ls.iter().for_each(|x| written(x, out)),
+            _ => slots(place(l), &l.ty, out),
+        }
+    }
+    fn tag(p: &Place) -> u8 {
+        match p {
+            Place::Var(_) => 0,
+            Place::Idx(_) => 1,
+            Place::Proj(..) => 2,
+        }
+    }
+    fn cmp(a: &Place, b: &Place) -> std::cmp::Ordering {
+        match (a, b) {
+            (Place::Idx(x), _) => cmp(x, b),
+            (_, Place::Idx(y)) => cmp(a, y),
+            (Place::Var(x), Place::Var(y)) => x.cmp(y),
+            (Place::Proj(x, i), Place::Proj(y, j)) => i.cmp(j).then_with(|| cmp(x, y)),
+            _ => tag(a).cmp(&tag(b)),
+        }
+    }
+    fn show(p: &Place) -> String {
+        match p {
+            Place::Var(n) => n.clone(),
+            Place::Idx(x) => format!("{}[...]", show(x)),
+            Place::Proj(x, k) => format!("{}.{k}", show(x)),
+        }
+    }
+    fn base(p: &Place) -> &str {
+        match p {
+            Place::Var(n) => n,
+            Place::Idx(x) | Place::Proj(x, _) => base(x),
         }
     }
     let mut all = Vec::new();
-    flat(l, &mut all);
-    let paths: Vec<(String, Vec<usize>)> = all.iter().map(|x| path(x)).collect();
-    for i in 0..paths.len() {
-        for j in 0..i {
-            let (a, pa) = &paths[i];
-            let (b, pb) = &paths[j];
-            if a == b && (pa.starts_with(pb) || pb.starts_with(pa)) {
-                return err(
-                    l.span,
-                    format!(
-                        "The same value cannot be assigned to multiple times in one assignment: {a}"
-                    ),
-                );
+    written(l, &mut all);
+    let mut sorted = all.clone();
+    sorted.sort_by(cmp);
+    let mut dups: Vec<String> = Vec::new();
+    let mut recorded = false;
+    for w in sorted.windows(2) {
+        if cmp(&w[0], &w[1]).is_eq() {
+            if !recorded {
+                dups.push(show(&w[1]));
             }
+            recorded = true;
+        } else {
+            recorded = false;
         }
     }
-    // Variables read in indices of the lvalue may not be assigned in the same statement.
-    let names: Vec<&str> = all.iter().filter_map(|x| lvalue_base_name(x)).collect();
+    if !dups.is_empty() {
+        return err(
+            l.span,
+            format!(
+                "@[<v2>The same value cannot be assigned to multiple times in one assignment:@ @[{}@]@]",
+                dups.join(",@ ")
+            ),
+        );
+    }
+    let names: Vec<&str> = all.iter().map(base).collect();
     fn idx_vars(l: &TLValue, out: &mut Vec<String>) {
         match &l.kind {
             TLValueKind::Indexed(i, idx) => {
@@ -3569,11 +3714,19 @@ fn verify_lvalue_unique(l: &TLValue) -> R<()> {
     }
     let mut read = Vec::new();
     idx_vars(l, &mut read);
-    if let Some(n) = read.iter().find(|r| names.contains(&r.as_str())) {
+    let mut both: Vec<&String> = read
+        .iter()
+        .filter(|r| names.contains(&r.as_str()))
+        .collect();
+    both.sort();
+    both.dedup();
+    if !both.is_empty() {
+        let both: Vec<&str> = both.iter().map(|s| s.as_str()).collect();
         return err(
             l.span,
             format!(
-                "The same variable cannot be both assigned to and read from on the left hand side of an assignment: {n}"
+                "@[<v2>The same variable cannot be both assigned to and read from on the left hand side of an assignment:@ @[{}@]@]",
+                both.join(",@ ")
             ),
         );
     }
@@ -3791,19 +3944,17 @@ fn ty(t: &UnsizedType) -> String {
 
 /// Lays out an OCaml format string as stanc3 prints error explanations.
 fn layout(fmt: &str) -> String {
+    // Printed in the formatter's own box, like stanc3's: a break hint left open at the final
+    // flush always breaks.
     let mut f = Formatter::new();
-    f.open(BoxKind::HOV, 0);
     f.pf(fmt);
-    f.close();
     f.finish()
 }
 
 /// Lays out text as `Fmt.text` does: spaces are break hints.
 fn layout_text(s: &str) -> String {
     let mut f = Formatter::new();
-    f.open(BoxKind::HOV, 0);
     f.text(s);
-    f.close();
     f.finish()
 }
 
@@ -3817,7 +3968,9 @@ fn unnormalized_error(name: &str) -> String {
 
 fn illtyped_assignment(lt: &UnsizedType, rt: &UnsizedType) -> String {
     layout(&format!(
-        "@[Ill-typed assignment statement.@ Expected the right hand side to have a type matching the destination ({lt}).@ Instead found type {rt}.@]"
+        "@[Ill-typed assignment statement.@ Expected the right hand side to have a type matching the destination ({}).@ Instead found type {}.@]",
+        ty(lt),
+        ty(rt)
     ))
 }
 
@@ -3857,4 +4010,98 @@ fn fun_args(args: &[(Ad, UnsizedType)]) -> String {
         })
         .collect::<Vec<_>>()
         .join(",@ ")
+}
+
+/// stanc3's `pretty_print_math_lib_operator_sigs`, joined by new lines: each implementing
+/// function's signatures, each group starting on a new line.
+fn operator_sigs(key: &str) -> String {
+    if key == "%/%" {
+        return "\n(int, int) => int".to_string();
+    }
+    signatures::operator_functions(key)
+        .iter()
+        .map(|f| {
+            signatures::lookup(f)
+                .iter()
+                .map(|s| format!("\n{}", math_sig(s)))
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `UnsizedType.pp_math_sig` as plain text.
+fn math_sig(s: &Signature) -> String {
+    let args = s
+        .args
+        .iter()
+        .map(|(a, t)| {
+            if *a == AdLevel::DataOnly && function_part(t).is_none() {
+                format!("data {t}")
+            } else {
+                t.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ret = s.ret.as_ref().map_or("void".to_string(), |t| t.to_string());
+    format!("({args}) => {ret}")
+}
+
+/// stanc3's `expected_types`: `a`, `a or b`, `a,@ b,@ or c`, `a,@ b,@ c,@ or d`.
+fn expected_types(ts: &[UnsizedType]) -> String {
+    match ts {
+        [t] => ty(t),
+        [a, b] => format!("{} or {}", ty(a), ty(b)),
+        [a, b, c] => format!("{},@ {},@ or {}", ty(a), ty(b), ty(c)),
+        [t, rest @ ..] => format!("{},@ {}", ty(t), expected_types(rest)),
+        [] => String::new(),
+    }
+}
+
+/// stanc3's `IllTypedAssignment` for a compound operator, listing the valid right hand sides.
+fn illtyped_compound_assignment(op: BinOp, lt: &UnsizedType, rt: &UnsizedType) -> String {
+    let fns: &[&str] = if op == BinOp::Divide {
+        &["divide"]
+    } else {
+        signatures::operator_functions(op.symbol())
+    };
+    let elementwise = matches!(op, BinOp::EltTimes | BinOp::EltDivide);
+    let mut rhs: Vec<UnsizedType> = Vec::new();
+    for f in fns {
+        for sig in signatures::lookup(f) {
+            let [(_, l), (_, r)] = &sig.args[..] else {
+                continue;
+            };
+            if sig.ret.as_ref() != Some(l) || (elementwise && is_scalar(l)) {
+                continue;
+            }
+            if check_same_type(0, lt, l).is_err() {
+                continue;
+            }
+            if *r == UnsizedType::Real {
+                rhs.push(UnsizedType::Int);
+            }
+            rhs.push(r.clone());
+        }
+    }
+    rhs.sort_by(mismatch::compare_type);
+    rhs.dedup();
+    let body = if rhs.is_empty() {
+        format!(
+            "There are no valid right hand sides for the given left hand side ({}).",
+            ty(lt)
+        )
+    } else {
+        format!(
+            "For the given left hand side ({}), expected the right hand side to have type@ {}.@ Instead found type {}.",
+            ty(lt),
+            expected_types(&rhs),
+            ty(rt)
+        )
+    };
+    format!(
+        "@[Ill-typed assignment operator {}=.@ {body}@]",
+        op.symbol()
+    )
 }

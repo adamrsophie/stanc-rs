@@ -420,6 +420,18 @@ impl Formatter {
                     if b.get(i) == Some(&b'<') {
                         let end = fmt[i..].find('>').map(|k| i + k).unwrap_or(b.len());
                         let spec = &fmt[i + 1..end];
+                        // `<v2>` is `<v 2>`.
+                        let split = spec
+                            .find(|c: char| !c.is_ascii_alphabetic())
+                            .filter(|&k| k > 0 && !spec[k..].starts_with(' '));
+                        let spaced;
+                        let spec = match split {
+                            Some(k) => {
+                                spaced = format!("{} {}", &spec[..k], &spec[k..]);
+                                spaced.as_str()
+                            }
+                            None => spec,
+                        };
                         let mut parts = spec.split_whitespace();
                         let first = parts.next().unwrap_or("");
                         let num = |s: Option<&str>| s.and_then(|s| s.parse().ok()).unwrap_or(0);
