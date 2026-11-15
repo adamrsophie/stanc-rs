@@ -768,11 +768,15 @@ fn structural_functions() {
     let out = m
         .write_array(&[0.5, -0.5], false, true, &mut rng())
         .unwrap();
+    // After the 17 original values: exp(i pi); i^2 and 2^3 as (re, im) pairs;
+    // the row-major 2 by 3 reshape, column by column; and the softmax of each
+    // vector, as s[1][1], s[2][1], s[1][2], s[2][2].
     let expected = [
         0.5, -0.5, 2.0, 3.0, 4.0, 2.0, 1.0, 1.0, 2.0, 3.0, 0.5, -0.5, 1.0, 2.0, 5.0, 3.0, 4.0,
+        -1.0, -1.0, 0.0, 8.0, 0.0, 1.0, 4.0, 2.0, 5.0, 3.0, 6.0, 0.5, 0.25, 0.5, 0.75,
     ];
     assert_eq!(out.len(), expected.len());
     for (o, e) in out.iter().zip(expected) {
-        assert_close(*o, e, 0.0);
+        assert_close(*o, e, 1e-14);
     }
 }
