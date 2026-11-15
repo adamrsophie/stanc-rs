@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use stanc_rs_syntax::ast::*;
 use stanc_rs_syntax::{Diagnostic, DiagnosticKind, Span};
 
+use crate::mismatch::{self, Sig};
 use crate::signatures::{self, Signature};
 use crate::typed::*;
 use crate::types::*;
@@ -273,7 +274,7 @@ enum Match {
         promotions: Vec<Promotion>,
     },
     Ambiguous,
-    Errors(Vec<Mismatch>),
+    Errors(Vec<(Sig, Mismatch)>),
 }
 
 fn calc_ad(ctx: &Ctx, origin: Origin, ty: &UnsizedType) -> Ad {
@@ -361,25 +362,6 @@ fn fun_app_ad(ty: &UnsizedType, args: &[TExpr]) -> Ad {
         Ad::DataOnly
     };
     ad.fill_for(ty)
-}
-
-fn describe_args(es: &[TExpr]) -> String {
-    es.iter()
-        .map(|e| e.ty.to_string())
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn mismatch_text(m: &Mismatch) -> String {
-    match m {
-        Mismatch::Type(e, a) => format!("expected {e} but got {a}"),
-        Mismatch::DataOnly => "argument must be data-only (local variables and function arguments are assumed to depend on parameters unless marked 'data')".into(),
-        Mismatch::ArgCount(e, a) => format!("expected {e} arguments but got {a}"),
-        Mismatch::Suffix => "function argument has the wrong kind".into(),
-        Mismatch::ReturnType => "function argument has the wrong return type".into(),
-        Mismatch::Input(m) => format!("function argument's arguments do not match: {}", mismatch_text(m)),
-        Mismatch::Arg(i, m) => format!("argument {i}: {}", mismatch_text(m)),
-    }
 }
 
 impl Checker {
@@ -487,21 +469,33 @@ impl Checker {
         span: Span,
         name: &str,
         args: &[TExpr],
-        errs: &[Mismatch],
+        errs: Vec<(Sig, Mismatch)>,
     ) -> Diagnostic {
-        let mut d = Diagnostic::new(
+        let (sigs, omitted) = mismatch::select(errs);
+        let tys: Vec<UnsizedType> = args.iter().map(|e| e.ty.clone()).collect();
+        Diagnostic::new(
             DiagnosticKind::Semantic,
             span,
-            format!(
-                "Ill-typed arguments supplied to function '{}':\n({})",
-                name,
-                describe_args(args)
-            ),
-        );
-        for e in errs.iter().take(5) {
-            d = d.with_note(mismatch_text(e));
-        }
-        d
+            mismatch::signature_mismatch(name, &tys, &sigs, omitted),
+        )
+    }
+
+    /// A higher-order call's error (stanc3 `illtyped_variadic`), at the argument it concerns.
+    fn variadic_error(
+        &self,
+        span: Span,
+        name: &str,
+        args: &[TExpr],
+        (expected, e): VariadicError,
+        ret: UnsizedType,
+    ) -> Diagnostic {
+        let tys: Vec<UnsizedType> = args.iter().map(|e| e.ty.clone()).collect();
+        let span = specialize_span(span, &e, args);
+        Diagnostic::new(
+            DiagnosticKind::Semantic,
+            span,
+            mismatch::signature_mismatch(name, &tys, &[((Some(ret), expected), e)], false),
+        )
     }
 
     // ----- Expressions -----
@@ -1287,7 +1281,7 @@ impl Checker {
                     id.name
                 ),
             ),
-            Match::Errors(errs) => Err(self.signature_error(span, &id.name, &tes, &errs)),
+            Match::Errors(errs) => Err(self.signature_error(span, &id.name, &tes, errs)),
         }
     }
 
@@ -1314,41 +1308,6 @@ impl Checker {
         v
     }
 
-    fn check_variadic_args(
-        &self,
-        allow_lpdf: bool,
-        mandatory: &[(AdLevel, UnsizedType)],
-        fn_args: &[(AdLevel, UnsizedType)],
-        fn_ret: &UnsizedType,
-        ft: &FunctionType,
-        rest: &[(Ad, UnsizedType)],
-    ) -> Result<Vec<Promotion>, Mismatch> {
-        let ok_suffix = ft.suffix == FnSuffix::Plain
-            || (allow_lpdf && matches!(ft.suffix, FnSuffix::Lpdf | FnSuffix::Lpmf));
-        if !ok_suffix {
-            return Err(Mismatch::Suffix);
-        }
-        if ft.args.len() < fn_args.len() {
-            return Err(Mismatch::Input(Box::new(Mismatch::ArgCount(
-                fn_args.len(),
-                ft.args.len(),
-            ))));
-        }
-        let (mand, extra) = ft.args.split_at(fn_args.len());
-        let want: Vec<(Ad, UnsizedType)> = fn_args
-            .iter()
-            .map(|(a, t)| ((*a).into(), t.clone()))
-            .collect();
-        check_compatible_args(1, mand, &want).map_err(|e| Mismatch::Input(Box::new(e)))?;
-        match &ft.ret {
-            Some(r) if check_same_type(1, r, fn_ret).is_ok() => {}
-            _ => return Err(Mismatch::ReturnType),
-        }
-        let expected: Vec<(AdLevel, UnsizedType)> =
-            mandatory.iter().chain(extra).cloned().collect();
-        check_compatible_args(0, &expected, rest)
-    }
-
     fn check_variadic(
         &mut self,
         ctx: &Ctx,
@@ -1358,42 +1317,40 @@ impl Checker {
         cond: bool,
         v: signatures::Variadic,
     ) -> R<TExpr> {
-        let _ = ctx;
-        let Some(TExpr {
-            kind: TExprKind::Variable { name: fname, .. },
-            span: fspan,
-            ..
-        }) = tes.first()
-        else {
-            return err(
+        let fid = match tes.first() {
+            Some(TExpr {
+                kind: TExprKind::Variable { name, .. },
                 span,
-                format!(
-                    "Ill-typed arguments supplied to function '{}': the first argument must be a function.",
-                    id.name
-                ),
-            );
-        };
-        let fid = Ident {
-            name: fname.clone(),
-            span: *fspan,
+                ..
+            }) => Ident {
+                name: name.clone(),
+                span: *span,
+            },
+            _ => {
+                let e = check_variadic_args(
+                    false,
+                    &v.control_args,
+                    &v.fn_args,
+                    &v.fn_ret,
+                    &arg_types(&tes),
+                )
+                .expect_err("not a function");
+                return Err(self.variadic_error(span, &id.name, &tes, e, v.fn_ret));
+            }
         };
         let rest = arg_types(&tes[1..]);
         let mut matches = Vec::new();
         let mut errs = Vec::new();
         for ft in self.function_values(&fid) {
-            match self.check_variadic_args(
-                false,
-                &v.control_args,
-                &v.fn_args,
-                &v.fn_ret,
-                &ft,
-                &rest,
-            ) {
+            let fty = UnsizedType::Function(Box::new(ft.clone()));
+            let mut args = vec![(calc_ad(ctx, Origin::Functions, &fty), fty)];
+            args.extend(rest.iter().cloned());
+            match check_variadic_args(false, &v.control_args, &v.fn_args, &v.fn_ret, &args) {
                 Ok(ps) => matches.push((ps.iter().map(Promotion::cost).sum::<usize>(), ft, ps)),
                 Err(e) => errs.push(e),
             }
         }
-        self.finish_higher_order(span, id, &fid, tes, cond, matches, errs, v.ret)
+        self.finish_higher_order(span, id, &fid, tes, cond, matches, errs, v.ret, v.fn_ret)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1405,17 +1362,18 @@ impl Checker {
         tes: Vec<TExpr>,
         cond: bool,
         matches: Vec<(usize, FunctionType, Vec<Promotion>)>,
-        errs: Vec<Mismatch>,
+        errs: Vec<VariadicError>,
         ret: UnsizedType,
+        fn_ret: UnsizedType,
     ) -> R<TExpr> {
         let Some(min) = matches.iter().map(|m| m.0).min() else {
-            if self.function_values(fid).is_empty() {
+            let Some(e) = errs.into_iter().next() else {
                 return err(
                     fid.span,
                     format!("Identifier '{}' not in scope or not a function.", fid.name),
                 );
-            }
-            return Err(self.signature_error(span, &id.name, &tes, &errs));
+            };
+            return Err(self.variadic_error(span, &id.name, &tes, e, fn_ret));
         };
         let mut best: Vec<_> = matches.into_iter().filter(|m| m.0 == min).collect();
         if best.len() > 1 {
@@ -1437,7 +1395,7 @@ impl Checker {
             ..f
         };
         let mut args = vec![f];
-        args.extend(it.zip(&ps).map(|(e, p)| promote(e, p)));
+        args.extend(it.zip(ps.iter().skip(1)).map(|(e, p)| promote(e, p)));
         let ad = fun_app_ad(&ret, &args);
         Ok(texpr(
             TExprKind::FunApp {
@@ -1460,27 +1418,43 @@ impl Checker {
         tes: Vec<TExpr>,
         cond: bool,
     ) -> R<TExpr> {
-        let _ = ctx;
-        let Some(TExpr {
-            kind: TExprKind::Variable { name: fname, .. },
-            span: fspan,
-            ..
-        }) = tes.first()
-        else {
-            return err(
-                span,
-                format!("Ill-typed arguments supplied to function '{}'.", id.name),
-            );
+        use UnsizedType::{Array, Int, Real};
+        let basic = |tes: &[TExpr]| {
+            check_variadic_args(
+                true,
+                &[
+                    (AdLevel::AutoDiffable, Array(Box::new(Real))),
+                    (AdLevel::AutoDiffable, Int),
+                ],
+                &[
+                    (AdLevel::AutoDiffable, Array(Box::new(Real))),
+                    (AdLevel::DataOnly, Int),
+                    (AdLevel::DataOnly, Int),
+                ],
+                &Real,
+                &arg_types(tes),
+            )
+            .expect_err("reduce_sum without a sliced argument")
         };
-        let fid = Ident {
-            name: fname.clone(),
-            span: *fspan,
-        };
-        let Some(slice) = tes.get(1) else {
-            return err(
-                span,
-                format!("Ill-typed arguments supplied to function '{}'.", id.name),
-            );
+        let (fid, slice) = match (tes.first(), tes.get(1)) {
+            (
+                Some(TExpr {
+                    kind: TExprKind::Variable { name, .. },
+                    span: fspan,
+                    ..
+                }),
+                Some(slice),
+            ) => (
+                Ident {
+                    name: name.clone(),
+                    span: *fspan,
+                },
+                slice,
+            ),
+            _ => {
+                let e = basic(&tes);
+                return Err(self.variadic_error(span, &id.name, &tes, e, Real));
+            }
         };
         let (n, inner) = slice.ty.array_dims();
         if n == 0 {
@@ -1512,29 +1486,21 @@ impl Checker {
         let mut matches = Vec::new();
         let mut errs = Vec::new();
         for ft in self.function_values(&fid) {
+            let fty = UnsizedType::Function(Box::new(ft.clone()));
             let Some(sliced) = ft.args.first().cloned() else {
-                errs.push(Mismatch::ArgCount(3, 0));
+                errs.push(basic(&tes));
                 continue;
             };
-            let mandatory = vec![sliced.clone(), (AdLevel::AutoDiffable, UnsizedType::Int)];
-            let fn_args = vec![
-                sliced,
-                (AdLevel::DataOnly, UnsizedType::Int),
-                (AdLevel::DataOnly, UnsizedType::Int),
-            ];
-            match self.check_variadic_args(
-                true,
-                &mandatory,
-                &fn_args,
-                &UnsizedType::Real,
-                &ft,
-                &rest,
-            ) {
+            let mut args = vec![(calc_ad(ctx, Origin::Functions, &fty), fty)];
+            args.extend(rest.iter().cloned());
+            let mandatory = [sliced.clone(), (AdLevel::AutoDiffable, Int)];
+            let fn_args = [sliced, (AdLevel::DataOnly, Int), (AdLevel::DataOnly, Int)];
+            match check_variadic_args(true, &mandatory, &fn_args, &Real, &args) {
                 Ok(ps) => matches.push((ps.iter().map(Promotion::cost).sum::<usize>(), ft, ps)),
                 Err(e) => errs.push(e),
             }
         }
-        self.finish_higher_order(span, id, &fid, tes, cond, matches, errs, UnsizedType::Real)
+        self.finish_higher_order(span, id, &fid, tes, cond, matches, errs, Real, Real)
     }
 
     fn tuple_arg_types(&self, te: &TExpr, what: &str) -> R<Vec<(Ad, UnsizedType)>> {
@@ -1640,7 +1606,7 @@ impl Checker {
                         "Function '{}' cannot be called with the arguments forwarded by '{}': {}",
                         fname.name,
                         caller.name,
-                        mismatch_text(&e)
+                        mismatch::input_mismatch(&e)
                     ),
                 );
             }
@@ -1726,7 +1692,7 @@ impl Checker {
                         format!(
                             "Ill-typed arguments supplied to the likelihood of '{}': {}",
                             id.name,
-                            mismatch_text(&e)
+                            mismatch::input_mismatch(&e)
                         ),
                     );
                 }
@@ -1835,7 +1801,7 @@ impl Checker {
                         format!(
                             "Ill-typed tolerance arguments supplied to '{}': {}",
                             id.name,
-                            mismatch_text(&e)
+                            mismatch::input_mismatch(&e)
                         ),
                     );
                 }
@@ -2293,7 +2259,7 @@ impl Checker {
                         );
                     }
                     Match::Errors(errs) => {
-                        return Err(self.signature_error(span, &id.name, &tes, &errs));
+                        return Err(self.signature_error(span, &id.name, &tes, errs));
                     }
                 }
             }
@@ -2818,7 +2784,7 @@ impl Checker {
                     ),
                 );
             }
-            Match::Errors(errs) => return Err(self.signature_error(span, n, &all, &errs)),
+            Match::Errors(errs) => return Err(self.signature_error(span, n, &all, errs)),
         };
         let mut all: Vec<TExpr> = all
             .into_iter()
@@ -3235,11 +3201,7 @@ fn resolve<'a>(
                     }
                 }
             }
-            Err(e) => {
-                if errs.len() < 8 {
-                    errs.push(e);
-                }
-            }
+            Err(e) => errs.push(((sig.ret.clone(), sig.args.clone()), e)),
         }
     }
     match best.len() {
@@ -3667,4 +3629,78 @@ fn edit_distance(a: &str, b: &str) -> usize {
         prev = cur;
     }
     prev[b.len()]
+}
+
+/// The argument list a higher-order call was checked against, and why it does not match.
+type VariadicError = (Vec<(AdLevel, UnsizedType)>, Mismatch);
+
+/// stanc3's `check_variadic_args`: `args` starts with the function argument. On failure, returns
+/// the argument list the call was checked against and the mismatch.
+fn check_variadic_args(
+    allow_lpdf: bool,
+    mandatory_args: &[(AdLevel, UnsizedType)],
+    mandatory_fn_args: &[(AdLevel, UnsizedType)],
+    fn_ret: &UnsizedType,
+    args: &[(Ad, UnsizedType)],
+) -> Result<Vec<Promotion>, VariadicError> {
+    let minimal = UnsizedType::Function(Box::new(FunctionType {
+        ret: Some(fn_ret.clone()),
+        args: mandatory_fn_args.to_vec(),
+        suffix: FnSuffix::Plain,
+    }));
+    let mut minimal_args = vec![(AdLevel::AutoDiffable, minimal.clone())];
+    minimal_args.extend(mandatory_args.iter().cloned());
+    let wrap = |x| Err((minimal_args.clone(), Mismatch::Arg(1, Box::new(x))));
+    match args.first() {
+        Some((_, fty @ UnsizedType::Function(ft))) if ft.ret.is_some() => {
+            let wrap_fn = |d| {
+                wrap(Mismatch::Type(
+                    minimal.clone(),
+                    fty.clone(),
+                    Some(Box::new(d)),
+                ))
+            };
+            let (mandatory, extra) = ft.args.split_at(mandatory_fn_args.len().min(ft.args.len()));
+            let ok_suffix = ft.suffix == FnSuffix::Plain
+                || (allow_lpdf && matches!(ft.suffix, FnSuffix::Lpdf | FnSuffix::Lpmf));
+            if !ok_suffix {
+                return wrap_fn(Details::Suffix(FnSuffix::Plain, ft.suffix));
+            }
+            let want: Vec<(Ad, UnsizedType)> = mandatory_fn_args
+                .iter()
+                .map(|(a, t)| ((*a).into(), t.clone()))
+                .collect();
+            if let Err(x) = check_compatible_args(1, mandatory, &want) {
+                return wrap_fn(Details::Input(Box::new(x)));
+            }
+            let ret = ft.ret.as_ref().expect("returning");
+            if check_same_type(1, ret, fn_ret).is_err() {
+                return wrap_fn(Details::ReturnType(Some(fn_ret.clone()), ft.ret.clone()));
+            }
+            let mut expected = vec![(AdLevel::AutoDiffable, fty.clone())];
+            expected.extend(mandatory_args.iter().cloned());
+            expected.extend(extra.iter().cloned());
+            check_compatible_args(0, &expected, args).map_err(|x| (expected, x))
+        }
+        Some((_, x)) => wrap(Mismatch::Type(minimal.clone(), x.clone(), None)),
+        None => Err((Vec::new(), Mismatch::ArgCount(mandatory_args.len(), 0))),
+    }
+}
+
+/// stanc3's `specialize_loc`: the argument an error concerns.
+fn specialize_span(span: Span, e: &Mismatch, args: &[TExpr]) -> Span {
+    let which = match e {
+        Mismatch::Arg(i, _) => *i as isize - 1,
+        Mismatch::ArgCount(expected, found) => {
+            if expected > found {
+                *found as isize - 1
+            } else {
+                *expected as isize
+            }
+        }
+        _ => 0,
+    };
+    args.get(which.max(0) as usize)
+        .map(|a| a.span)
+        .unwrap_or(span)
 }

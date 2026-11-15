@@ -202,23 +202,28 @@ pub fn common_type(a: &UnsizedType, b: &UnsizedType) -> Option<UnsizedType> {
     })
 }
 
-/// Why an argument does not match a signature.
+/// Why an argument does not match a signature (stanc3 `type_mismatch` and `function_mismatch`).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Mismatch {
-    /// Types differ.
-    Type(UnsizedType, UnsizedType),
+    /// Types differ: expected, found, and why two function types differ.
+    Type(UnsizedType, UnsizedType, Option<Box<Details>>),
     /// A data-only argument received an autodiff value.
     DataOnly,
     /// Wrong number of arguments: expected, found.
     ArgCount(usize, usize),
-    /// Function argument has the wrong suffix kind.
-    Suffix,
-    /// Function argument has the wrong return type.
-    ReturnType,
-    /// Function argument has incompatible arguments.
-    Input(Box<Mismatch>),
     /// The argument at (one-based) position has a mismatch.
     Arg(usize, Box<Mismatch>),
+}
+
+/// Why two function types are incompatible.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Details {
+    /// Function kinds differ: expected, found.
+    Suffix(FnSuffix, FnSuffix),
+    /// Return types differ: expected, found.
+    ReturnType(Option<UnsizedType>, Option<UnsizedType>),
+    /// Arguments differ.
+    Input(Box<Mismatch>),
 }
 
 fn without_propto(s: FnSuffix) -> FnSuffix {
@@ -232,7 +237,8 @@ pub fn check_same_type(
     actual: &UnsizedType,
 ) -> Result<Promotion, Mismatch> {
     use UnsizedType::*;
-    let mismatch = || Mismatch::Type(expected.clone(), actual.clone());
+    let mismatch = || Mismatch::Type(expected.clone(), actual.clone(), None);
+    let detail = |d| Mismatch::Type(expected.clone(), actual.clone(), Some(Box::new(d)));
     match (expected, actual) {
         (a, b) if a == b => Ok(Promotion::None),
         (Real, Int) if depth < 1 => Ok(Promotion::IntToReal),
@@ -265,10 +271,10 @@ pub fn check_same_type(
         }
         (Function(f1), Function(f2)) => {
             if without_propto(f1.suffix) != without_propto(f2.suffix) {
-                return Err(Mismatch::Suffix);
+                return Err(detail(Details::Suffix(f1.suffix, f2.suffix)));
             }
             if f1.ret != f2.ret {
-                return Err(Mismatch::ReturnType);
+                return Err(detail(Details::ReturnType(f1.ret.clone(), f2.ret.clone())));
             }
             // Contravariant: the supplied function must accept what the signature passes it.
             let a1: Vec<(Ad, UnsizedType)> = f1
@@ -278,7 +284,7 @@ pub fn check_same_type(
                 .collect();
             check_compatible_args(depth + 1, &f2.args, &a1)
                 .map(|_| Promotion::None)
-                .map_err(|e| Mismatch::Input(Box::new(e)))
+                .map_err(|e| detail(Details::Input(Box::new(e))))
         }
         _ => Err(mismatch()),
     }

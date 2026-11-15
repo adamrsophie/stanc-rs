@@ -5,6 +5,7 @@
 
 pub mod check;
 mod deprecation;
+pub mod mismatch;
 pub mod signatures;
 pub mod typed;
 pub mod types;
