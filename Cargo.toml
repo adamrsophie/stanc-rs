@@ -9,7 +9,6 @@ rust-version = "1.88"
 license = "GPL-3.0-only"
 authors = ["Adam R Sophie <adamrsophie@gmail.com>"]
 repository = "https://github.com/adamrsophie/stanc-rs"
-homepage = "https://github.com/adamrsophie/stanc-rs"
 keywords = ["stan", "compiler", "bayesian", "probabilistic-programming"]
 categories = ["compilers", "mathematics", "science"]
 

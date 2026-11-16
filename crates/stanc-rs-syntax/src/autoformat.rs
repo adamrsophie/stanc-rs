@@ -1,5 +1,5 @@
 //! stanc3's formatter (`stanc --auto-format`): a port of `Pretty_printing.ml` and
-//! `Pretty_print_prog.ml` on the [`Formatter`](crate::format::Formatter) engine. Comments are
+//! `Pretty_print_prog.ml` on the [`Formatter`] engine. Comments are
 //! placed by comparing their locations with those of the syntax tree, as stanc3 does, so the
 //! output keeps them where stanc3 keeps them.
 
