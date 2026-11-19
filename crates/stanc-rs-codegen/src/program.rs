@@ -5,6 +5,7 @@ use stanc_rs_semantic::typed::{
     Origin, TExpr, TExprKind, TIndex, TProgram, TSizedType, TStmt, TStmtKind, TTransformation,
 };
 use stanc_rs_semantic::types::Ad;
+use stanc_rs_syntax::Span;
 use stanc_rs_syntax::ast::{FnSuffix, UnsizedType as U};
 
 use crate::expr::rust_type;
@@ -16,6 +17,8 @@ struct Decl {
     name: String,
     ty: TSizedType,
     trans: TTransformation,
+    /// The declaration statement, for runtime error locations.
+    span: Span,
 }
 
 fn decls(block: &[TStmt]) -> Vec<Decl> {
@@ -30,6 +33,7 @@ fn decls(block: &[TStmt]) -> Vec<Decl> {
                     name: v.name.clone(),
                     ty: ty.clone(),
                     trans: trans.clone(),
+                    span: s.span,
                 });
             }
         }
@@ -86,8 +90,10 @@ impl Gen {
         self.line("/// Reads the data, runs the transformed data block, and checks every declared constraint.");
         self.line("pub fn new(data__: &rt::data::Data, seed__: u64) -> rt::Result<Model> {");
         self.indent += 1;
+        self.line("let loc__ = std::cell::Cell::new(usize::MAX);");
         self.line("let build__ = || -> rt::Result<Model> {");
         self.indent += 1;
+        let prev = std::mem::replace(&mut self.track_loc, true);
         self.line("type T = f64;");
         self.line("let mut rng_state__ = <rt::rand::rngs::StdRng as rt::rand::SeedableRng>::seed_from_u64(seed__);");
         self.line("let rng__: &mut dyn rt::rand::Rng = &mut rng_state__;");
@@ -97,6 +103,7 @@ impl Gen {
         self.line("let target__ = &mut target_val__;");
         self.fields.clear();
         for d in &data {
+            self.mark_statement(d.span);
             let uty = d.ty.unsized_type();
             let src = if matches!(uty, U::Int | U::Real | U::Complex | U::Tuple(_)) {
                 format!("data__.get({:?})?", d.name)
@@ -148,8 +155,10 @@ impl Gen {
             "Ok(Model {{ {fields}info__, num_unconstrained__ }})"
         ));
         self.indent -= 1;
+        self.track_loc = prev;
         self.line("};");
-        self.line("build__().map_err(rt::ModelError::in_data)");
+        self.line("let r__ = build__();");
+        self.line("r__.map_err(|e| rt::locate(e, loc__.get(), LOCATIONS__)).map_err(rt::ModelError::in_data)");
         self.indent -= 1;
         self.line("}");
         self.indent -= 1;
@@ -171,6 +180,7 @@ impl Gen {
         // Log density.
         self.line("fn log_prob_generic<T: rt::check::Scalar>(&self, theta__: &[T], jacobian__: bool, propto__: bool) -> rt::Result<T> {");
         self.indent += 1;
+        let prev = self.begin_located("T");
         self.line("let mut target_val__ = T::from_f64(0.0);");
         self.line("let target__ = &mut target_val__;");
         self.line("let mut in__ = rt::io::Reader::new(theta__);");
@@ -187,6 +197,7 @@ impl Gen {
         self.indent -= 1;
         self.line("}");
         self.line("Ok(target_val__)");
+        self.end_located(prev);
         self.indent -= 1;
         self.line("}");
         self.line("");
@@ -194,6 +205,7 @@ impl Gen {
         // Constrained values.
         self.line("fn write_array_impl(&self, theta__: &[f64], include_tp__: bool, include_gq__: bool, rng__: &mut dyn rt::rand::Rng) -> rt::Result<Vec<f64>> {");
         self.indent += 1;
+        let prev = self.begin_located("Vec<f64>");
         self.line("type T = f64;");
         self.line("let jacobian__ = false;");
         self.line("let propto__ = false;");
@@ -241,6 +253,7 @@ impl Gen {
             k += 1;
         }
         self.line("Ok(out__)");
+        self.end_located(prev);
         self.indent -= 1;
         self.line("}");
         self.line("");
@@ -344,6 +357,7 @@ impl Gen {
             self.indent += 1;
             self.fields.clear();
             self.ret = ret.clone();
+            let prev = self.begin_located(&ret_ty);
             match &body.kind {
                 TStmtKind::Block(ss) => self.stmts(ss)?,
                 _ => self.stmt(body)?,
@@ -357,6 +371,7 @@ impl Gen {
                     format!("function '{name}' ended without returning a value")
                 ));
             }
+            self.end_located(prev);
             self.indent -= 1;
             self.line("}");
             self.line("");
@@ -437,6 +452,7 @@ impl Gen {
 
     /// Emits the constraint checks of a declared variable.
     fn check_decl(&mut self, d: &Decl, _ad: &Ad) -> R<()> {
+        self.mark_statement(d.span);
         let var = self.var(&d.name);
         self.check_value(&var, &d.name, &d.ty, &d.trans)
     }
@@ -742,6 +758,7 @@ impl Gen {
 
     /// Emits `let mut name = <constrained value>;` for one parameter.
     fn read_param(&mut self, d: &Decl) -> R<()> {
+        self.mark_statement(d.span);
         let uty = d.ty.unsized_type();
         let code = self.read_sized(&d.ty, &d.trans)?;
         self.line(&format!(

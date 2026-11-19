@@ -17,6 +17,7 @@ pub mod index;
 pub mod io;
 pub mod names;
 pub mod ops;
+pub mod print;
 pub mod stan;
 pub mod transform;
 
@@ -55,6 +56,11 @@ pub struct ModelError {
     pub kind: ErrorKind,
     /// Explanation.
     pub message: String,
+    /// The Stan source locations of the statements that were running, innermost first: the
+    /// statement that failed, then the call sites of the user-defined functions it was in. Each
+    /// is printed as stanc3 prints them, for example `'model.stan', line 5, column 2 to column
+    /// 20`.
+    pub locations: Vec<String>,
 }
 
 impl ModelError {
@@ -63,6 +69,7 @@ impl ModelError {
         ModelError {
             kind,
             message: message.into(),
+            locations: Vec::new(),
         }
     }
 
@@ -90,11 +97,33 @@ impl ModelError {
         self.message = format!("{context}: {}", self.message);
         self
     }
+
+    /// Adds the source location of the statement that was running when the error passed
+    /// through a generated function.
+    pub fn at(mut self, location: &str) -> Self {
+        self.locations.push(location.to_string());
+        self
+    }
+}
+
+/// Adds `table[statement]` to an error leaving a generated function. `statement` is the
+/// position in the model's location table of the last statement that started; it is
+/// `usize::MAX` when the error came before the first one.
+pub fn locate(e: ModelError, statement: usize, table: &[&str]) -> ModelError {
+    match table.get(statement) {
+        Some(loc) => e.at(loc),
+        None => e,
+    }
 }
 
 impl fmt::Display for ModelError {
+    /// The message followed by each location, as Stan's `rethrow_located` prints them.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
+        write!(f, "{}", self.message)?;
+        for loc in &self.locations {
+            write!(f, " (in {loc})")?;
+        }
+        Ok(())
     }
 }
 

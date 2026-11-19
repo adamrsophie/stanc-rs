@@ -451,6 +451,7 @@ pub fn compile_source(name: &str, text: &str, opts: &Options) -> Result<Compiled
         .chain(&checked.warnings)
         .map(|w| w.render(&sources))
         .collect();
-    let rust = stanc_rs_codegen::generate(&checked.program).map_err(|d| d.render(&sources))?;
+    let rust =
+        stanc_rs_codegen::generate(&checked.program, &sources).map_err(|d| d.render(&sources))?;
     Ok(Compiled { rust, warnings })
 }

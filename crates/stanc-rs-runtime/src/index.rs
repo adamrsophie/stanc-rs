@@ -270,3 +270,86 @@ mod tests {
         assert_eq!(col(&m, 2).unwrap(), vec![3, 4]);
     }
 }
+
+fn assign_size_error(
+    what: &str,
+    name: &str,
+    lhs: usize,
+    rhs_label: &str,
+    rhs: usize,
+) -> ModelError {
+    ModelError::new(
+        ErrorKind::Size,
+        format!(
+            "{what}: assigning variable {name} ({lhs}) and {rhs_label} ({rhs}) must match in size"
+        ),
+    )
+}
+
+/// `x = y` for an array (`row` false) or a vector or row vector. As in Stan's `assign`, a
+/// container that already has elements keeps its size: a value of another size is an error, so
+/// declared sizes hold at every optimization level.
+pub fn assign_vec<T>(x: &mut Vec<T>, y: Vec<T>, kind: VecKind, name: &str) -> Result<()> {
+    if !x.is_empty() && x.len() != y.len() {
+        let (what, rhs) = match kind {
+            VecKind::Array => ("assign array size", "right hand side"),
+            VecKind::Vector => ("vector assign rows", "right hand side rows"),
+            VecKind::RowVector => ("vector assign columns", "right hand side columns"),
+        };
+        return Err(assign_size_error(what, name, x.len(), rhs, y.len()));
+    }
+    *x = y;
+    Ok(())
+}
+
+/// Which container [`assign_vec`] assigns, for its error message.
+#[derive(Clone, Copy, Debug)]
+pub enum VecKind {
+    Array,
+    Vector,
+    RowVector,
+}
+
+/// `x = y` for a matrix, with the size rule of [`assign_vec`].
+pub fn assign_mat<T>(x: &mut Matrix<T>, y: Matrix<T>, name: &str) -> Result<()> {
+    if x.len() != 0 {
+        if x.ncols() != y.ncols() {
+            return Err(assign_size_error(
+                "matrix assign columns",
+                name,
+                x.ncols(),
+                "right hand side columns",
+                y.ncols(),
+            ));
+        }
+        if x.nrows() != y.nrows() {
+            return Err(assign_size_error(
+                "matrix assign rows",
+                name,
+                x.nrows(),
+                "right hand side rows",
+                y.nrows(),
+            ));
+        }
+    }
+    *x = y;
+    Ok(())
+}
+
+#[cfg(test)]
+mod assign_tests {
+    use super::*;
+
+    #[test]
+    fn sized_containers_keep_their_size() {
+        let mut x = vec![0.0; 2];
+        let e = assign_vec(&mut x, vec![1.0; 3], VecKind::Vector, "x").unwrap_err();
+        assert!(e.to_string().contains(
+            "vector assign rows: assigning variable x (2) and right hand side rows (3) must match in size"
+        ));
+        assign_vec(&mut x, vec![1.0, 2.0], VecKind::Vector, "x").unwrap();
+        let mut empty: Vec<f64> = vec![];
+        assign_vec(&mut empty, vec![1.0; 3], VecKind::Array, "e").unwrap();
+        assert_eq!(empty.len(), 3);
+    }
+}

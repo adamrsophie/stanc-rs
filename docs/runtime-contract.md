@@ -60,7 +60,7 @@ tuple is written component by component, and an array of tuples element by eleme
 
 ## Errors
 
-`rt::ModelError { kind, message }` with `kind`:
+`rt::ModelError { kind, message, locations }` with `kind`:
 
 | Kind | Raised when |
 | --- | --- |
@@ -73,6 +73,25 @@ tuple is written component by component, and an array of tuples element by eleme
 | `Parameters` | The parameter vector has the wrong length |
 
 Generated code does not panic on bad input.
+
+`locations` lists the Stan source locations of the statements that were running, innermost
+first: the statement that failed, then the statement of each caller in turn when the error
+passes out of user-defined functions. Each reads as stanc3 prints it, for example
+`'model.stan', line 5, column 2 to column 20`, and `Display` appends each one as
+` (in ...)`, like Stan's `rethrow_located`. A constraint check or parameter read reports its
+declaration. Every generated function records its current statement in a local cell, so this
+costs one store per statement.
+
+Containers keep their declared size: assigning a value of another size to a vector, row
+vector, matrix, or array that has elements is a `Size` error, as with Stan's
+`stan::model::assign`.
+
+## Printing
+
+`print` writes one line to the print sink of the current thread, standard output by default.
+A caller redirects it with `rt::print::with_sink(writer, || ...)`, which returns the writer
+afterwards, or with `rt::print::set_sink`. Because the sink belongs to the thread, chains run on
+separate threads keep separate output, and model methods keep their signatures.
 
 ## Random numbers
 

@@ -49,6 +49,9 @@ impl Gen {
 
     /// Emits one statement.
     pub fn stmt(&mut self, s: &TStmt) -> R<()> {
+        if !matches!(s.kind, TStmtKind::Block(_) | TStmtKind::Skip) {
+            self.mark_statement(s.span);
+        }
         match &s.kind {
             TStmtKind::Assign { lhs, op, rhs } => {
                 let value = match op {
@@ -214,6 +217,15 @@ impl Gen {
                             self.line(&format!("let mut {name}: {rty} = {d};"));
                             let c = self.expr_as(e, &uty, &ad)?;
                             self.line(&format!("{name} = {c};"));
+                            continue;
+                        }
+                        Some(e) if is_container(&uty) => {
+                            // Sizes first, then the value, as Stan evaluates them.
+                            let d = self.default_value(ty, &ad)?;
+                            self.line(&format!("let mut {name}: {rty} = {d};"));
+                            let c = self.expr_as(e, &uty, &ad)?;
+                            self.assign_name = v.name.clone();
+                            self.assign_place(&name, &uty, &c);
                             continue;
                         }
                         Some(e) => self.expr_as(e, &uty, &ad)?,
@@ -547,6 +559,7 @@ impl Gen {
         self.line("{");
         self.indent += 1;
         self.line(&format!("let {v} = {value};"));
+        self.assign_name = lvalue_root(lhs).to_string();
         self.assign_to(lhs, &v)?;
         self.indent -= 1;
         self.line("}");
@@ -597,6 +610,7 @@ impl Gen {
         match &lhs.kind {
             TLValueKind::Tuple(lvs) => {
                 for (i, lv) in lvs.iter().enumerate() {
+                    self.assign_name = lvalue_root(lv).to_string();
                     self.assign_to(lv, &format!("{v}.{i}"))?;
                 }
                 Ok(())
@@ -631,7 +645,7 @@ impl Gen {
             }
             _ => {
                 let p = self.place_mut(lhs)?;
-                self.line(&format!("{p} = {v};"));
+                self.assign_place(&p, &lhs.ty, v);
                 Ok(())
             }
         }
@@ -696,7 +710,7 @@ impl Gen {
     /// selects an element, a multi-index loops over its positions and the elements of `v`.
     fn assign_general(&mut self, p: &str, ty: &U, idxs: &[TIndex], v: &str) -> R<()> {
         let Some((first, rest)) = idxs.split_first() else {
-            self.line(&format!("{p} = {v};"));
+            self.assign_place(p, ty, v);
             return Ok(());
         };
         let inner = match ty {
@@ -736,6 +750,28 @@ impl Gen {
             }
         }
         Ok(())
+    }
+
+    /// `p = v`. A container that already has elements keeps its size, as with Stan's
+    /// `stan::model::assign`: a value of another size is an error.
+    fn assign_place(&mut self, p: &str, ty: &U, v: &str) {
+        let name = self.assign_name.clone();
+        let kind = match ty {
+            U::Array(_) => "Array",
+            U::Vector | U::ComplexVector => "Vector",
+            U::RowVector | U::ComplexRowVector => "RowVector",
+            U::Matrix | U::ComplexMatrix => {
+                self.line(&format!("rt::index::assign_mat(&mut {p}, {v}, {name:?})?;"));
+                return;
+            }
+            _ => {
+                self.line(&format!("{p} = {v};"));
+                return;
+            }
+        };
+        self.line(&format!(
+            "rt::index::assign_vec(&mut {p}, {v}, rt::index::VecKind::{kind}, {name:?})?;"
+        ));
     }
 
     fn tmp_expr(&mut self, e: &TExpr) -> R<String> {
@@ -834,4 +870,26 @@ pub fn rust_string(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+/// The variable an lvalue assigns to.
+fn lvalue_root(lv: &TLValue) -> &str {
+    match &lv.kind {
+        TLValueKind::Variable { name, .. } => name,
+        TLValueKind::Indexed(b, _) | TLValueKind::TupleProjection(b, _) => lvalue_root(b),
+        TLValueKind::Tuple(_) => "tuple",
+    }
+}
+
+fn is_container(t: &U) -> bool {
+    matches!(
+        t,
+        U::Array(_)
+            | U::Vector
+            | U::RowVector
+            | U::Matrix
+            | U::ComplexVector
+            | U::ComplexRowVector
+            | U::ComplexMatrix
+    )
 }

@@ -156,9 +156,9 @@ impl StanDisplay for &str {
     }
 }
 
-/// Writes a `print` line to standard output.
+/// Writes a `print` line to the print sink of the current thread (see [`crate::print`]).
 pub fn print(s: String) {
-    println!("{s}");
+    crate::print::line(&s);
 }
 
 /// Lifts a data complex number.

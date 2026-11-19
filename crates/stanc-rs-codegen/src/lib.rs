@@ -29,7 +29,7 @@ use std::collections::{HashMap, HashSet};
 use stanc_rs_semantic::typed::{TFunArg, TProgram, TSizedType};
 use stanc_rs_semantic::types::Ad;
 use stanc_rs_syntax::ast::UnsizedType as U;
-use stanc_rs_syntax::{Diagnostic, DiagnosticKind, Span};
+use stanc_rs_syntax::{Diagnostic, DiagnosticKind, SourceMap, Span};
 
 pub(crate) type R<T> = Result<T, Diagnostic>;
 
@@ -78,11 +78,24 @@ pub struct Gen {
     /// Set while lowering an operator written as a function call, so that the operator's own
     /// fallback to a library call does not loop.
     pub(crate) in_operator: Option<Span>,
+    /// The Stan variable being assigned, for size error messages.
+    pub(crate) assign_name: String,
+    /// The program's sources, to print statement locations.
+    sources: SourceMap,
+    /// The locations of the statements, as the generated `LOCATIONS__` table lists them.
+    locs: Vec<String>,
+    loc_ids: HashMap<String, usize>,
+    /// Set inside a function body that records its current statement in `loc__`.
+    pub(crate) track_loc: bool,
 }
 
 impl Gen {
-    fn new() -> Gen {
+    fn new(sources: &SourceMap) -> Gen {
         Gen {
+            sources: sources.clone(),
+            locs: Vec::new(),
+            loc_ids: HashMap::new(),
+            track_loc: false,
             out: String::new(),
             indent: 0,
             fields: HashSet::new(),
@@ -90,6 +103,7 @@ impl Gen {
             udfs: HashMap::new(),
             in_operator: None,
             ret: None,
+            assign_name: String::new(),
         }
     }
 
@@ -162,9 +176,51 @@ impl Gen {
     }
 }
 
-/// Generates the Rust module for a checked program.
-pub fn generate(p: &TProgram) -> Result<String, Diagnostic> {
-    let mut g = Gen::new();
+/// Generates the Rust module for a checked program. `sources` resolves the spans of the
+/// program's statements, which the generated code attaches to runtime errors.
+pub fn generate(p: &TProgram, sources: &SourceMap) -> Result<String, Diagnostic> {
+    let mut g = Gen::new(sources);
     g.program(p)?;
+    g.line("");
+    g.line("/// The source locations of the statements, for runtime errors.");
+    g.line("const LOCATIONS__: &[&str] = &[");
+    for l in std::mem::take(&mut g.locs) {
+        g.line(&format!("    {l:?},"));
+    }
+    g.line("];");
     Ok(g.out)
+}
+
+impl Gen {
+    /// Records that the statement at `span` starts, when inside a tracked body.
+    pub(crate) fn mark_statement(&mut self, span: Span) {
+        if !self.track_loc || self.sources.files.get(span.file as usize).is_none() {
+            return;
+        }
+        let loc = self.sources.pp_span(span);
+        let next = self.locs.len();
+        let k = *self.loc_ids.entry(loc.clone()).or_insert(next);
+        if k == next {
+            self.locs.push(loc);
+        }
+        self.line(&format!("loc__.set({k});"));
+    }
+
+    /// Opens a function body whose errors get the location of the statement that was running:
+    /// the body runs in an immediately called closure, and statements record themselves in
+    /// `loc__`. Returns the previous tracking state for [`Gen::end_located`].
+    pub(crate) fn begin_located(&mut self, ret: &str) -> bool {
+        self.line("let loc__ = std::cell::Cell::new(usize::MAX);");
+        self.line(&format!("let r__ = (|| -> rt::Result<{ret}> {{"));
+        self.indent += 1;
+        std::mem::replace(&mut self.track_loc, true)
+    }
+
+    /// Closes a body opened by [`Gen::begin_located`]; the result is the function's value.
+    pub(crate) fn end_located(&mut self, prev: bool) {
+        self.indent -= 1;
+        self.line("})();");
+        self.line("r__.map_err(|e| rt::locate(e, loc__.get(), LOCATIONS__))");
+        self.track_loc = prev;
+    }
 }
