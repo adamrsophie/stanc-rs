@@ -16,8 +16,11 @@ release, with stanmath-rs at revision `04dc87184161bf29cbc035a32eb0407b14169900`
 | Crashes on `bad` programs | 0 |
 | Error reported on the same line as stanc3 | 1191 of 1191 |
 | Same error category as stanc3 (syntax or semantic) | 1191 of 1191 |
-| Error message text identical to stanc3's | 1189 of 1191 (see [Diagnostics](#diagnostics)) |
+| Error message text identical to stanc3's | 1191 of 1191 (see [Diagnostics](#diagnostics)) |
 | Warning text identical to stanc3's, on the 52 `good` programs with warnings | 52 of 52 |
+| `--debug-mir-pretty` output identical to stanc3's | 1244 of 1244 |
+| `--warn-uninitialized` text identical, on the 208 programs with such warnings | 208 of 208 |
+| `--warn-pedantic` text identical on `good` programs | 956 of 958 (stanc3 crashes on the other 2) |
 | `good` programs translated to Rust | 1244 of 1244 |
 | Translated programs whose Rust builds (`cargo check`) | 1244 of 1244 |
 | `stanc-rs info` equal to `stanc --info` (as JSON values) | 1244 of 1244 |
@@ -66,16 +69,16 @@ explanation. `tools/message_diff.py` compares each part:
 
 | Part of the message | Identical to stanc3 |
 | --- | --- |
-| Whole message | 1189 of 1191 |
+| Whole message | 1191 of 1191 |
 | Header (category, file, line and column range, included-from chain) | 1191 of 1191 |
 | Source excerpt with the caret | 1191 of 1191 |
-| Explanation | 1189 of 1191 (602 of 602 syntax errors, 587 of 589 semantic errors) |
+| Explanation | 1191 of 1191 (602 of 602 syntax errors, 589 of 589 semantic errors) |
 
 stanc3 words syntax errors by the state of its Menhir parser. stanc-rs carries a copy of that
 automaton, generated from stanc3's `parser.mly` and `parser.messages` by
 `tools/menhir_tables.py`, and replays the tokens of a rejected program through it to find the
-same state, message, and location. The two remaining differences list the signatures of
-`bernoulli_logit` in another order where stanc3's candidates tie.
+same state, message, and location. Where several library signatures fit a call equally badly,
+they are listed in the order stanc3 generates them.
 
 JSON diagnostics: `stanc-rs check --json-diagnostics` prints `{"ok", "diagnostics"}` to
 stdout, each diagnostic with its severity, kind, message, file, begin and end positions,
@@ -83,8 +86,15 @@ include chain, and rendered text.
 
 Warnings are identical: `tools/warning_diff.py` finds warnings on 52 of the `good` programs, and
 the text agrees with stanc3's on all 52, including the expressions stanc3 prints in its int
-division, chained comparison, and matrix power warnings. stanc3's `--warn-pedantic` checks
-are not implemented.
+division, chained comparison, and matrix power warnings.
+
+`--warn-uninitialized` and `--warn-pedantic` run stanc3's analyses on a port of its middle
+intermediate representation (MIR). `tools/mir_diff.py` compares the output of
+`--debug-mir-pretty` with stanc3's on all 1244 integration programs, and they match. The
+uninitialized variable warnings match stanc3's on all 208 integration programs that have them.
+The pedantic warnings match on 956 of the 958 `good` programs; on the other two, stanc3 stops
+with an internal error because an `_lp` function is called with an argument that is not a
+variable, and stanc-rs makes the factor depend on the variables of every argument.
 
 ## Numerical validation
 
@@ -117,8 +127,9 @@ data.
   with `#include` in the stanc3 test directories also format identically, with and without
   `--canonicalize includes`. Where stanc3 stops with an internal error because an `#include`
   or comment cannot be kept in place, stanc-rs reports an ordinary error instead.
-* **Not implemented command line features:** `--warn-pedantic`, optimization levels (`-O0`,
-  `-O1`), `--standalone-functions`, and JSON diagnostics.
-* **Optimization.** The typed AST is translated directly. There are no optimization passes.
+* **Not implemented command line features:** optimization levels (`-O0`, `-O1`) and
+  `--standalone-functions`.
+* **Optimization.** The typed AST is translated directly. The partial evaluator and the
+  constant and copy propagation passes exist, but only the pedantic analysis uses them.
 * **Code generation target.** Generated models implement the `stanc_rs_runtime::GeneratedModel`
   trait; they are not C++ and cannot be used by CmdStan.

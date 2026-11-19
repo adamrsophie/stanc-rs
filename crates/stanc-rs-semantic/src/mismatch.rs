@@ -526,9 +526,37 @@ pub fn signature_mismatch(
     p.f.finish()
 }
 
+/// The position of a type in stanc3's expansions of vectorized argument kinds (`expand_arg`):
+/// `real`, `array[] real`, `vector`, `row_vector`, then the integer forms.
+fn expansion_rank(t: &UnsizedType) -> u8 {
+    use UnsizedType::*;
+    match t {
+        Matrix => 0,
+        Real => 1,
+        Array(e) if **e == Real => 2,
+        Vector => 3,
+        Array(e) if **e == Vector => 4,
+        RowVector => 5,
+        Array(e) if **e == RowVector => 6,
+        Int => 7,
+        Array(e) if **e == Int => 8,
+        _ => 9,
+    }
+}
+
+/// The order in which stanc3 lists the signatures of a library function: the reverse of the
+/// order its generator adds them, which varies the last argument slowest. Ties between
+/// equally informative errors keep this order.
+fn generation_order(a: &[(AdLevel, UnsizedType)], b: &[(AdLevel, UnsizedType)]) -> Ordering {
+    let ka = a.iter().rev().map(|(_, t)| expansion_rank(t));
+    let kb = b.iter().rev().map(|(_, t)| expansion_rank(t));
+    kb.cmp(ka)
+}
+
 /// Orders signature errors as stanc3 does (candidates sorted by return type, then errors by
 /// [`compare_errors`]), keeping at most [`MAX_ERRORS`]. Returns whether some were omitted.
 pub fn select(mut errs: Vec<(Sig, Mismatch)>) -> (Vec<(Sig, Mismatch)>, bool) {
+    errs.sort_by(|a, b| generation_order(&a.0.1, &b.0.1));
     errs.sort_by(|a, b| compare_return(&a.0.0, &b.0.0));
     errs.sort_by(|a, b| compare_errors(&a.1, &b.1));
     let omitted = errs.len() > MAX_ERRORS;
