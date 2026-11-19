@@ -20,3 +20,13 @@ It was produced in two steps:
 Variadic higher-order functions (ODE and DAE solvers, `solve_newton`, `solve_powell`,
 `integrate_1d_*`, `reduce_sum`) and the embedded Laplace functions are not in the dump; they are
 described in `src/signatures.rs`.
+
+`soa_signatures_2.40.0.txt` lists, in the same format, the signatures for which Stan Math accepts
+struct of arrays (SoA) matrices, which the `--O1` memory pattern pass needs. The dump does not
+record this, so `tools/soa_signatures.py` recovers it by compiling a probe model per function
+with `stanc --O1 --debug-mem-patterns`:
+
+```sh
+python3 tools/soa_signatures.py path/to/stanc stan_math_signatures_2.40.0.txt \
+    > soa_signatures_2.40.0.txt
+```

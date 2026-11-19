@@ -19,6 +19,8 @@ release, with stanmath-rs at revision `04dc87184161bf29cbc035a32eb0407b14169900`
 | Error message text identical to stanc3's | 1191 of 1191 (see [Diagnostics](#diagnostics)) |
 | Warning text identical to stanc3's, on the 52 `good` programs with warnings | 52 of 52 |
 | `--debug-mir-pretty` output identical to stanc3's | 1244 of 1244 |
+| `--debug-transformed-mir-pretty` output identical | 1244 of 1244 |
+| `--O1 --debug-optimized-mir-pretty` output identical | 1244 of 1244 |
 | `--warn-uninitialized` text identical, on the 208 programs with such warnings | 208 of 208 |
 | `--warn-pedantic` text identical, on the 958 `good` programs with such warnings | 956 of 958 (stanc3 crashes on the other 2) |
 | `good` programs translated to Rust | 1244 of 1244 |
@@ -97,6 +99,16 @@ Of the 1244 `good` programs, 958 get pedantic warnings, and the text matches sta
 with an internal error because an `_lp` function is called with an argument that is not a
 variable, and stanc-rs makes the factor depend on the variables of every argument.
 
+The MIR also goes through ports of stanc3's backend transformation and of its `--O1`
+optimizations: function inlining, constant and copy propagation, dead code elimination, partial
+evaluation, list collapsing, the struct of arrays memory pattern analysis, and the removal of
+needless initialization. `--debug-transformed-mir-pretty` and `--O1 --debug-optimized-mir-pretty`
+print the same text as stanc3 on all 1244 integration programs, and the passes pass stanc3's unit
+tests for them. The memory pattern analysis needs to know which Stan Math signatures accept
+struct of arrays matrices; `tools/soa_signatures.py` recovers this from a stanc3 binary (see
+`crates/stanc-rs-semantic/data/README.md`). The generated Rust is translated from the typed AST,
+so `--O1` changes the MIR only, not the generated code.
+
 ## Numerical validation
 
 The models in `crates/stanc-rs-fixtures/models` are compiled at build time, and their tests
@@ -128,9 +140,9 @@ data.
   with `#include` in the stanc3 test directories also format identically, with and without
   `--canonicalize includes`. Where stanc3 stops with an internal error because an `#include`
   or comment cannot be kept in place, stanc-rs reports an ordinary error instead.
-* **Not implemented command line features:** optimization levels (`-O0`, `-O1`) and
-  `--standalone-functions`.
-* **Optimization.** The typed AST is translated directly. The partial evaluator and the
-  constant and copy propagation passes exist, but only the pedantic analysis uses them.
+* **Not implemented command line features:** `--Oexperimental` and `--standalone-functions`.
+* **Optimization.** The typed AST is translated directly to Rust. `--O0` and `--O1` select the
+  optimizations applied to the MIR, which stanc-rs prints and analyzes but does not generate code
+  from, so they do not change the generated Rust.
 * **Code generation target.** Generated models implement the `stanc_rs_runtime::GeneratedModel`
   trait; they are not C++ and cannot be used by CmdStan.

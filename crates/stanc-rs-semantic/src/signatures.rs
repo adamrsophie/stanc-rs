@@ -301,6 +301,60 @@ pub fn is_special_function_name(name: &str) -> bool {
     variadic(name).is_some() || is_reduce_sum(name) || is_laplace(name)
 }
 
+const SOA: &str = include_str!("../data/soa_signatures_2.40.0.txt");
+
+/// The library signatures that accept struct of arrays matrices, by function name.
+fn soa_table() -> &'static HashMap<String, Vec<Signature>> {
+    static TABLE: OnceLock<HashMap<String, Vec<Signature>>> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        let mut m: HashMap<String, Vec<Signature>> = HashMap::new();
+        for line in SOA.lines().filter(|l| !l.trim().is_empty()) {
+            let (name, sig) =
+                parse_line(line).unwrap_or_else(|| panic!("bad signature line: {line}"));
+            m.entry(name).or_default().push(sig);
+        }
+        m
+    })
+}
+
+/// Does some signature of the library function `name` (an operator by its MIR name, such as
+/// `Plus__`) that these arguments fit accept struct of arrays matrices
+/// (`query_stan_math_mem_pattern_support`)?
+pub fn supports_soa(name: &str, args: &[(crate::types::Ad, UnsizedType)]) -> bool {
+    if is_special_function_name(name) {
+        return false;
+    }
+    let name = normalized_name(name);
+    let name = match name.as_str() {
+        "Plus__" => "add",
+        "PPlus__" => "plus",
+        "Minus__" => "subtract",
+        "PMinus__" => "minus",
+        "Times__" => "multiply",
+        "Divide__" | "IntDivide__" => "divide",
+        "Modulo__" => "modulus",
+        "LDivide__" => "mdivide_left",
+        "EltTimes__" => "elt_multiply",
+        "EltDivide__" => "elt_divide",
+        "Pow__" | "EltPow__" => "pow",
+        "Or__" => "logical_or",
+        "And__" => "logical_and",
+        "Equals__" => "logical_eq",
+        "NEquals__" => "logical_neq",
+        "Less__" => "logical_lt",
+        "Leq__" => "logical_lte",
+        "Greater__" => "logical_gt",
+        "Geq__" => "logical_gte",
+        "PNot__" => "logical_negation",
+        "Transpose__" => "transpose",
+        n => n,
+    };
+    soa_table().get(name).is_some_and(|sigs| {
+        sigs.iter()
+            .any(|s| crate::types::check_compatible_args(0, &s.args, args).is_ok())
+    })
+}
+
 // ----- Dump parser -----
 
 fn parse_line(line: &str) -> Option<(String, Signature)> {
@@ -456,5 +510,30 @@ mod tests {
             && s.ret == Some(UnsizedType::Real)));
         let alg = lookup("algebra_solver");
         assert!(matches!(alg[0].args[0].1, UnsizedType::Function(_)));
+    }
+}
+
+#[cfg(test)]
+mod soa_tests {
+    use super::supports_soa;
+    use crate::types::Ad;
+    use stanc_rs_syntax::ast::UnsizedType::*;
+
+    #[test]
+    fn soa_support_matches_stanc3() {
+        let ad = |t| (Ad::AutoDiffable, t);
+        assert!(supports_soa("Plus__", &[ad(Vector), ad(Vector)]));
+        assert!(supports_soa(
+            "normal_lupdf",
+            &[(Ad::DataOnly, Vector), ad(Vector), ad(Real)]
+        ));
+        assert!(supports_soa("rep_vector", &[ad(Real), (Ad::DataOnly, Int)]));
+        assert!(!supports_soa("eigendecompose", &[ad(Matrix)]));
+        assert!(!supports_soa(
+            "lower_bound_unconstrain",
+            &[ad(Vector), ad(Real)]
+        ));
+        // Integer arguments promote to the real signatures.
+        assert!(supports_soa("Times__", &[(Ad::DataOnly, Int), ad(Vector)]));
     }
 }

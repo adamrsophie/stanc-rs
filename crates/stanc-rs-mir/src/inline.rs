@@ -187,7 +187,7 @@ fn lvalue_of_expr(e: &Expr) -> Option<LValue> {
 }
 
 /// `Mir_utils.unsafe_unsized_to_sized_type`: a sized type with zero sizes.
-fn unsized_to_sized(t: &UnsizedType) -> SizedType {
+pub(crate) fn unsized_to_sized(t: &UnsizedType) -> SizedType {
     use UnsizedType as U;
     let z = || Expr::int(0);
     match t {

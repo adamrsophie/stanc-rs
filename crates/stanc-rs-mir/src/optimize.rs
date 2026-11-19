@@ -1641,6 +1641,23 @@ pub fn allow_uninitialized_decls(p: &mut Program) {
     }
 }
 
+/// stanc3's `--O1` optimization suite, applied to the transformed MIR.
+pub fn optimization_suite_o1(p: &mut Program) {
+    crate::inline::function_inlining(p);
+    constant_propagation(p, false);
+    copy_propagation(p);
+    constant_propagation(p, false);
+    dead_code_elimination(p);
+    partial_evaluation(p);
+    copy_propagation(p);
+    constant_propagation(p, false);
+    dead_code_elimination(p);
+    list_collapsing(p);
+    crate::soa::optimize_soa(p);
+    allow_uninitialized_decls(p);
+    block_fixing(p);
+}
+
 /// The passes stanc3 runs before its pedantic analysis: constant and copy propagation and the
 /// partial evaluator, in `optimization_suite` order, preserving numerical stability.
 pub fn pedantic_suite(p: &mut Program) {
