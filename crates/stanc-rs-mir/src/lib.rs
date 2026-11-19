@@ -3,9 +3,11 @@
 //! pedantic mode warnings.
 
 pub mod dataflow;
+pub mod experimental;
 pub mod inline;
 pub mod lower;
 pub mod mir;
+pub mod ocaml_order;
 pub mod optimize;
 pub mod pedantic;
 pub mod pretty;

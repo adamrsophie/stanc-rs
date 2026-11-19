@@ -559,8 +559,9 @@ fn fold(f: &str, l: &[Expr], e: &Expr) -> Result<Option<ExprP>, Rejected> {
     }
 }
 
-/// The return type of a library function or operator call, when exactly one signature fits.
-fn return_type_ok(name: &str, args: &[Expr]) -> bool {
+/// The return type of a library function or operator call, when exactly one signature fits
+/// (`Partial_evaluator.stan_math_return_type`). `Some(None)` is a void function.
+pub(crate) fn call_return_type(name: &str, args: &[Expr]) -> Option<Option<UnsizedType>> {
     let tys: Vec<_> = args
         .iter()
         .map(|a| (a.meta.ad.clone(), a.meta.ty.clone()))
@@ -572,10 +573,14 @@ fn return_type_ok(name: &str, args: &[Expr]) -> bool {
                 Operator::PMinus => "u-",
                 o => o.symbol(),
             };
-            operator_return_type(key, &tys).is_some()
+            operator_return_type(key, &tys)
         }
-        None => stan_math_return_type(name, &tys).is_some(),
+        None => stan_math_return_type(name, &tys),
     }
+}
+
+fn return_type_ok(name: &str, args: &[Expr]) -> bool {
+    call_return_type(name, args).is_some()
 }
 
 /// Partially evaluates an expression (`eval_expr`).
@@ -1093,7 +1098,7 @@ impl Lattice for PartialFns {
 }
 
 /// `subst_expr`: replaces variables by their values.
-fn subst_expr(m: &BTreeMap<String, Expr>, e: &mut Expr) {
+pub(crate) fn subst_expr(m: &BTreeMap<String, Expr>, e: &mut Expr) {
     if let ExprP::Var(v) = &e.pattern
         && let Some(x) = m.get(v)
     {
@@ -1126,7 +1131,7 @@ pub(crate) fn subst_stmt_base(m: &BTreeMap<String, Expr>, s: &mut Stmt) {
 }
 
 /// The variables declared at the top of a statement list (`label_top_decls`).
-fn top_decls(s: &Stmt, out: &mut Vec<String>) {
+pub(crate) fn top_decls(s: &Stmt, out: &mut Vec<String>) {
     match &s.pattern {
         StmtP::Decl { id, .. } => out.push(id.clone()),
         StmtP::SList(ss) => ss.iter().for_each(|c| top_decls(c, out)),
@@ -1136,7 +1141,7 @@ fn top_decls(s: &Stmt, out: &mut Vec<String>) {
 
 /// `propagation`: substitutes into each statement the values the transfer function proves
 /// for its entry.
-fn propagation(
+pub(crate) fn propagation(
     s: &Stmt,
     transfer: &impl Fn(&Stmt, &BTreeMap<String, Expr>) -> BTreeMap<String, Expr>,
 ) -> Stmt {
@@ -1277,7 +1282,7 @@ fn can_side_effect_top(e: &Expr) -> bool {
 }
 
 /// `Mir_utils.expr_any`: the predicate is not applied to an indexing itself.
-fn expr_any(e: &Expr, pred: &impl Fn(&Expr) -> bool) -> bool {
+pub(crate) fn expr_any(e: &Expr, pred: &impl Fn(&Expr) -> bool) -> bool {
     if !matches!(e.pattern, ExprP::Indexed(..)) && pred(e) {
         return true;
     }
@@ -1285,12 +1290,12 @@ fn expr_any(e: &Expr, pred: &impl Fn(&Expr) -> bool) -> bool {
 }
 
 /// `cannot_remove_expr`.
-fn cannot_remove_expr(e: &Expr) -> bool {
+pub(crate) fn cannot_remove_expr(e: &Expr) -> bool {
     expr_any(e, &can_side_effect_top)
 }
 
 /// `free_vars_expr`: the variables and called user-defined functions.
-fn free_vars_expr(e: &Expr, out: &mut BTreeSet<String>) {
+pub(crate) fn free_vars_expr(e: &Expr, out: &mut BTreeSet<String>) {
     match &e.pattern {
         ExprP::Var(x) | ExprP::FunApp(FunKind::UserDefined(x, _), _) => {
             out.insert(x.clone());
@@ -1303,7 +1308,7 @@ fn free_vars_expr(e: &Expr, out: &mut BTreeSet<String>) {
 }
 
 /// `top_free_vars_stmt`: the variables a statement reads, without its sub-statements.
-fn top_free_vars(s: &Stmt) -> BTreeSet<String> {
+pub(crate) fn top_free_vars(s: &Stmt) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     match &s.pattern {
         StmtP::Decl {
@@ -1354,7 +1359,7 @@ fn globals(p: &Program) -> BTreeSet<String> {
 }
 
 /// Applies `f` bottom up with each statement's preorder label (`map_rec_stmt_loc_num`).
-fn map_labeled(s: &mut Stmt, label: &mut usize, f: &mut impl FnMut(usize, &mut Stmt)) {
+pub(crate) fn map_labeled(s: &mut Stmt, label: &mut usize, f: &mut impl FnMut(usize, &mut Stmt)) {
     let l = *label;
     *label += 1;
     for c in s.children_mut() {
@@ -1492,7 +1497,10 @@ pub fn dead_code_elimination(p: &mut Program) {
 
 /// `transform_program_blockwise`: the transformation applied to each function body and to
 /// each block (except `unconstrain_array`) on its own.
-fn transform_program_blockwise(p: &mut Program, f: &impl Fn(Option<&FunDef>, Stmt) -> Stmt) {
+pub(crate) fn transform_program_blockwise(
+    p: &mut Program,
+    f: &impl Fn(Option<&FunDef>, Stmt) -> Stmt,
+) {
     let functions = std::mem::take(&mut p.functions);
     p.functions = functions
         .into_iter()
@@ -1519,7 +1527,7 @@ fn transform_program_blockwise(p: &mut Program, f: &impl Fn(Option<&FunDef>, Stm
 }
 
 /// Applies `f` to every statement, bottom up.
-fn map_rec(s: &mut Stmt, f: &impl Fn(StmtP) -> StmtP) {
+pub(crate) fn map_rec(s: &mut Stmt, f: &impl Fn(StmtP) -> StmtP) {
     for c in s.children_mut() {
         map_rec(c, f);
     }

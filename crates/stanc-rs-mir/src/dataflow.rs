@@ -53,6 +53,12 @@ impl<'a> Graph<'a> {
     /// The forward flowgraph of a statement (`forward_flowgraph_of_stmt`). With
     /// `flatten_loops`, the end of a loop body is not followed by the loop again.
     pub fn build(root: &'a Stmt, flatten_loops: bool) -> Graph<'a> {
+        Graph::build_with(root, flatten_loops, true)
+    }
+
+    /// [`Graph::build`]; without `blocks_after_body`, a block precedes its body instead of
+    /// following it.
+    pub fn build_with(root: &'a Stmt, flatten_loops: bool, blocks_after_body: bool) -> Graph<'a> {
         let mut g = Graph {
             nodes: Vec::new(),
             children: Vec::new(),
@@ -66,7 +72,14 @@ impl<'a> Graph<'a> {
         let n = g.nodes.len();
         g.preds = vec![BTreeSet::new(); n];
         g.parents = vec![BTreeSet::new(); n];
-        g.exits = g.cf(0, None, CfState::default(), flatten_loops).exits;
+        g.exits = g
+            .cf(
+                0,
+                None,
+                CfState::default(),
+                (flatten_loops, blocks_after_body),
+            )
+            .exits;
         g.succs = vec![BTreeSet::new(); n];
         for l in 0..n {
             if g.preds[l].is_empty() {
@@ -89,11 +102,18 @@ impl<'a> Graph<'a> {
     }
 
     /// `build_cf_graphs`, with blocks visited after their bodies.
-    fn cf(&mut self, l: usize, cf_parent: Option<usize>, ins: CfState, flatten: bool) -> CfState {
+    fn cf(
+        &mut self,
+        l: usize,
+        cf_parent: Option<usize>,
+        ins: CfState,
+        opts: (bool, bool),
+    ) -> CfState {
+        let flatten = opts.0;
         let node: &'a Stmt = self.nodes[l];
         let p = &node.pattern;
         let is_loop = matches!(p, StmtP::While(..) | StmtP::For { .. });
-        let is_block = matches!(p, StmtP::Block(_) | StmtP::Profile(..));
+        let is_block = opts.1 && matches!(p, StmtP::Block(_) | StmtP::Profile(..));
         let child_cf = if is_loop || matches!(p, StmtP::IfElse(..)) {
             Some(l)
         } else {
@@ -109,10 +129,10 @@ impl<'a> Graph<'a> {
         };
         let children = self.children[l].clone();
         let unlooped = if let StmtP::IfElse(..) = p {
-            let then = self.cf(children[0], child_cf, child_init.clone(), flatten);
+            let then = self.cf(children[0], child_cf, child_init.clone(), opts);
             match children.get(1) {
                 Some(&e) => {
-                    let els = self.cf(e, child_cf, child_init, flatten);
+                    let els = self.cf(e, child_cf, child_init, opts);
                     join(&then, &els)
                 }
                 None => join(&then, &child_init),
@@ -120,7 +140,7 @@ impl<'a> Graph<'a> {
         } else {
             children
                 .iter()
-                .fold(child_init, |st, &c| self.cf(c, child_cf, st, flatten))
+                .fold(child_init, |st, &c| self.cf(c, child_cf, st, opts))
         };
         let (sub, preds) = if is_loop {
             let mut preds = union(&ins.exits, &unlooped.exits);

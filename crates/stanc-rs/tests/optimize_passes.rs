@@ -5,7 +5,7 @@
 //! compares the printed MIR with stanc3's expected text, ignoring blank lines and the common
 //! indentation.
 
-use stanc_rs::mir::{mir::*, optimize};
+use stanc_rs::mir::{experimental, mir::*, optimize};
 
 struct Case {
     name: String,
@@ -59,6 +59,12 @@ fn apply(pass: &str, p: &mut Program) -> Option<()> {
         "list_collapsing" => optimize::list_collapsing(p),
         "block_fixing" => optimize::block_fixing(p),
         "allow_uninitialized_decls" => optimize::allow_uninitialized_decls(p),
+        "expression_propagation" => experimental::expression_propagation(p),
+        "static_loop_unrolling" => experimental::static_loop_unrolling(p),
+        "one_step_loop_unrolling" => experimental::one_step_loop_unrolling(p),
+        "lazy_code_motion" => experimental::lazy_code_motion(p),
+        "optimize_ad_levels" => experimental::optimize_ad_levels(p),
+        "vectorize_loops" => experimental::vectorize_loops(p),
         _ => return None,
     }
     Some(())

@@ -135,7 +135,7 @@ fn name_subst_stmt(s: &mut Stmt, m: &HashMap<String, String>) {
 }
 
 /// `subst_args_stmt`: replaces the parameters by the arguments.
-fn subst_args_stmt(args: &[String], es: &[Expr], s: &mut Stmt) {
+pub(crate) fn subst_args_stmt(args: &[String], es: &[Expr], s: &mut Stmt) {
     let m: BTreeMap<String, Expr> = args.iter().cloned().zip(es.iter().cloned()).collect();
     let mut f = |p: StmtP| {
         let mut st = no_loc(p);
@@ -210,11 +210,11 @@ pub(crate) fn unsized_to_sized(t: &UnsizedType) -> SizedType {
 /// The declarations and statements an inlined value needs, and the value.
 type Inlined<T> = (Vec<Stmt>, Vec<Stmt>, T);
 
-struct Inliner {
-    sym: Gensym,
+struct Inliner<'a> {
+    sym: &'a Gensym,
 }
 
-impl Inliner {
+impl Inliner<'_> {
     fn gen_inline_var(&self, name: &str, id: &str) -> String {
         format!("inline_{name}_{id}_{}", self.sym.generate())
     }
@@ -646,9 +646,12 @@ impl Inliner {
 /// `function_inlining`: inlines the calls of user-defined functions that have a single
 /// definition into the model's blocks.
 pub fn function_inlining(p: &mut Program) {
-    let inl = Inliner {
-        sym: Gensym::default(),
-    };
+    function_inlining_with(p, &Gensym::default());
+}
+
+/// `function_inlining` with a name counter that later passes continue.
+pub(crate) fn function_inlining_with(p: &mut Program, sym: &Gensym) {
+    let inl = Inliner { sym };
     let mut counts: HashMap<&str, usize> = HashMap::new();
     for f in &p.functions {
         *counts.entry(&f.name).or_default() += 1;

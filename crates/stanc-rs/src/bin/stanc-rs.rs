@@ -29,7 +29,8 @@ OPTIONS:
     --debug-mir-pretty        For check: print the MIR as stanc3 --debug-mir-pretty does
     --debug-transformed-mir-pretty
                               For check: print the MIR after stanc3's backend transformation
-    --O0, --O1                Optimization level of the MIR (default: --O0); the generated Rust
+    --O0, --O1, --Oexperimental
+                              Optimization level of the MIR (default: --O0); the generated Rust
                               does not depend on it
     --debug-optimized-mir-pretty
                               For check: print the transformed MIR after the optimizations
@@ -66,7 +67,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
     let mut debug_mir = false;
     let mut debug_transformed_mir = false;
     let mut debug_optimized_mir = false;
-    let mut o1 = false;
+    let mut opt = 0u8;
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
         let mut value = |flag: &str| it.next().ok_or_else(|| format!("missing value for {flag}"));
@@ -106,8 +107,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
             "--debug-mir-pretty" => debug_mir = true,
             "--debug-transformed-mir-pretty" => debug_transformed_mir = true,
             "--debug-optimized-mir-pretty" => debug_optimized_mir = true,
-            "--O0" => o1 = false,
-            "--O1" => o1 = true,
+            "--O0" => opt = 0,
+            "--O1" => opt = 1,
+            "--Oexperimental" => opt = 2,
             "--max-line-length" => {
                 let v = value(&a)?;
                 fopts.line_length = v
@@ -150,8 +152,10 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 if debug_transformed_mir {
                     println!("{}", stanc_rs::mir::pretty::program(&mir));
                 }
-                if o1 {
-                    stanc_rs::mir::optimize::optimization_suite_o1(&mut mir);
+                match opt {
+                    1 => stanc_rs::mir::optimize::optimization_suite_o1(&mut mir),
+                    2 => stanc_rs::mir::experimental::optimization_suite_experimental(&mut mir),
+                    _ => {}
                 }
                 if debug_optimized_mir {
                     println!("{}", stanc_rs::mir::pretty::program(&mir));
