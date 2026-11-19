@@ -17,21 +17,21 @@ use crate::pretty;
 
 /// stanc3's `Gensym`: a counter of generated names, reset for every program.
 #[derive(Default)]
-struct Gensym(Cell<usize>);
+pub(crate) struct Gensym(Cell<usize>);
 
 impl Gensym {
-    fn generate(&self) -> String {
+    pub(crate) fn generate(&self) -> String {
         self.0.set(self.0.get() + 1);
         format!("sym{}__", self.0.get())
     }
 
     /// A new name and the counter value to restore once its scope ends.
-    fn enter(&self) -> (String, usize) {
+    pub(crate) fn enter(&self) -> (String, usize) {
         let old = self.0.get();
         (self.generate(), old)
     }
 
-    fn reset(&self, old: usize) {
+    pub(crate) fn reset(&self, old: usize) {
         self.0.set(old);
     }
 }
@@ -183,7 +183,7 @@ fn is_int_type(t: &UnsizedType) -> bool {
 }
 
 /// `UnsizedType.fill_adtype_for_type`.
-fn fill_ad(ad: &Ad, ut: &UnsizedType) -> Ad {
+pub(crate) fn fill_ad(ad: &Ad, ut: &UnsizedType) -> Ad {
     match (ad, ut) {
         (_, UnsizedType::Array(t)) => fill_ad(ad, t),
         (Ad::Tuple(ads), UnsizedType::Tuple(ts)) => {
@@ -226,7 +226,7 @@ pub(crate) fn add_int_index(e: Expr, i: Index<Expr>) -> Expr {
 }
 
 /// `Expr.Helpers.add_tuple_index`.
-fn add_tuple_index(e: Expr, i: usize) -> Expr {
+pub(crate) fn add_tuple_index(e: Expr, i: usize) -> Expr {
     let ty = match &e.meta.ty {
         UnsizedType::Tuple(ts) => ts[i - 1].clone(),
         t => t.clone(),
@@ -1874,5 +1874,6 @@ pub fn lower_program(p: &TProgram, untyped: &ast::Program) -> Program {
         generate_quantities: gq,
         output_vars,
         name: p.name.clone(),
+        ..Default::default()
     }
 }

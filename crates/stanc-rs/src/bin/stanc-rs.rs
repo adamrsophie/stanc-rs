@@ -27,6 +27,8 @@ OPTIONS:
     --warn-uninitialized      Warn about variables that may be read before they are assigned
     --warn-pedantic           Warn about likely modeling mistakes, as stanc3's pedantic mode does
     --debug-mir-pretty        For check: print the MIR as stanc3 --debug-mir-pretty does
+    --debug-transformed-mir-pretty
+                              For check: print the MIR after stanc3's backend transformation
     --help, -h                Print this message
     --version, -V             Print the version
 ";
@@ -58,6 +60,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
     let mut print_canonical = false;
     let mut json = false;
     let mut debug_mir = false;
+    let mut debug_transformed_mir = false;
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
         let mut value = |flag: &str| it.next().ok_or_else(|| format!("missing value for {flag}"));
@@ -95,6 +98,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             "--print-canonical" => print_canonical = true,
             "--json-diagnostics" => json = true,
             "--debug-mir-pretty" => debug_mir = true,
+            "--debug-transformed-mir-pretty" => debug_transformed_mir = true,
             "--max-line-length" => {
                 let v = value(&a)?;
                 fopts.line_length = v
@@ -131,6 +135,10 @@ fn run(args: Vec<String>) -> Result<(), String> {
             print_warnings(&c.warnings);
             if debug_mir {
                 println!("{}", stanc_rs::mir::pretty::program(&c.mir()));
+            }
+            if debug_transformed_mir {
+                let mir = stanc_rs::mir::transform::trans_prog(c.mir());
+                println!("{}", stanc_rs::mir::pretty::program(&mir));
             }
         }
         "compile" => {

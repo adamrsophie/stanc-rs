@@ -8,5 +8,6 @@ pub mod mir;
 pub mod optimize;
 pub mod pedantic;
 pub mod pretty;
+pub mod transform;
 
 pub use lower::lower_program;

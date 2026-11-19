@@ -143,6 +143,37 @@ pub fn internal_name(f: &Internal) -> String {
         Internal::MakeRowVec => Sexp::atom("FnMakeRowVec"),
         Internal::NegInf => Sexp::atom("FnNegInf"),
         Internal::ReadData => Sexp::atom("FnReadData"),
+        Internal::ReadDeserializer => Sexp::atom("FnReadDeserializer"),
+        Internal::ReadParam {
+            constrain,
+            dims,
+            mem_pattern,
+        } => Sexp::List(vec![
+            Sexp::atom("FnReadParam"),
+            Sexp::List(vec![Sexp::atom("constrain"), sexp_of_trans(constrain)]),
+            Sexp::List(vec![
+                Sexp::atom("dims"),
+                Sexp::List(dims.iter().map(|d| Sexp::Atom(expr_string(d))).collect()),
+            ]),
+            Sexp::List(vec![
+                Sexp::atom("mem_pattern"),
+                Sexp::atom(match mem_pattern {
+                    MemPattern::AoS => "AoS",
+                    MemPattern::SoA => "SoA",
+                }),
+            ]),
+        ]),
+        Internal::WriteParam {
+            unconstrain_opt,
+            var,
+        } => Sexp::List(vec![
+            Sexp::atom("FnWriteParam"),
+            Sexp::List(vec![
+                Sexp::atom("unconstrain_opt"),
+                Sexp::List(unconstrain_opt.iter().map(|t| sexp_of_trans(t)).collect()),
+            ]),
+            Sexp::List(vec![Sexp::atom("var"), Sexp::Atom(expr_string(var))]),
+        ]),
         Internal::ValidateSize => Sexp::atom("FnValidateSize"),
         Internal::ValidateSizePositive => Sexp::atom("FnValidateSizePositive"),
         Internal::ValidateSizeUnitVector => Sexp::atom("FnValidateSizeUnitVector"),
@@ -628,9 +659,11 @@ pub fn program(p: &Program) -> String {
     f.pf("@,");
     block(&mut f, "log_prob", &p.log_prob, stmt);
     f.pf("@,");
+    block(&mut f, "rev_log_prob", &p.reverse_mode_log_prob, stmt);
     f.pf("@,");
     block(&mut f, "generate_quantities", &p.generate_quantities, stmt);
     f.pf("@,");
+    block(&mut f, "transform_inits", &p.transform_inits, stmt);
     f.pf("@,");
     block(&mut f, "output_vars", &p.output_vars, |f, (name, _, ov)| {
         f.pf("@[<hov 2>");

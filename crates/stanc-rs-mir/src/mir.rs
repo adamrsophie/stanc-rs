@@ -338,6 +338,15 @@ impl Transformation {
     }
 }
 
+/// How Stan Math stores a matrix of autodiff values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemPattern {
+    /// An array of structs: a matrix of `var`.
+    AoS,
+    /// A struct of arrays: a `var` holding a matrix.
+    SoA,
+}
+
 /// Functions the compiler defines.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Internal {
@@ -347,6 +356,16 @@ pub enum Internal {
     MakeRowVec,
     NegInf,
     ReadData,
+    ReadDeserializer,
+    ReadParam {
+        constrain: Box<Transformation>,
+        dims: Vec<Expr>,
+        mem_pattern: MemPattern,
+    },
+    WriteParam {
+        unconstrain_opt: Option<Box<Transformation>>,
+        var: Box<Expr>,
+    },
     ValidateSize,
     ValidateSizePositive,
     ValidateSizeUnitVector,
@@ -364,11 +383,68 @@ pub enum Internal {
 }
 
 impl Internal {
+    /// The expressions inside the function itself, in the order `fold` visits them.
+    pub fn exprs(&self) -> Vec<&Expr> {
+        match self {
+            Internal::Check { trans, var, .. } => {
+                let mut v = trans.exprs();
+                v.push(var);
+                v
+            }
+            Internal::ReadParam {
+                constrain, dims, ..
+            } => {
+                let mut v = constrain.exprs();
+                v.extend(dims.iter());
+                v
+            }
+            Internal::WriteParam {
+                unconstrain_opt,
+                var,
+            } => {
+                let mut v = unconstrain_opt.as_ref().map_or(vec![], |t| t.exprs());
+                v.push(var);
+                v
+            }
+            _ => vec![],
+        }
+    }
+
+    /// The expressions inside the function itself, mutably.
+    pub fn exprs_mut(&mut self) -> Vec<&mut Expr> {
+        match self {
+            Internal::Check { trans, var, .. } => {
+                let mut v = trans.exprs_mut();
+                v.push(var);
+                v
+            }
+            Internal::ReadParam {
+                constrain, dims, ..
+            } => {
+                let mut v = constrain.exprs_mut();
+                v.extend(dims.iter_mut());
+                v
+            }
+            Internal::WriteParam {
+                unconstrain_opt,
+                var,
+            } => {
+                let mut v = unconstrain_opt.as_mut().map_or(vec![], |t| t.exprs_mut());
+                v.push(var);
+                v
+            }
+            _ => vec![],
+        }
+    }
+
     /// Whether a call changes state, so that calling it twice differs from calling it once.
     pub fn can_side_effect(&self) -> bool {
         matches!(
             self,
             Internal::ReadData
+                | Internal::ReadDeserializer
+                | Internal::ReadParam { .. }
+                | Internal::WriteParam { .. }
                 | Internal::ValidateSize
                 | Internal::ValidateSizePositive
                 | Internal::ValidateSizeUnitVector
@@ -487,9 +563,8 @@ impl Expr {
             ExprP::Var(_) | ExprP::Lit(..) => vec![],
             ExprP::FunApp(k, args) => {
                 let mut v: Vec<&Expr> = Vec::new();
-                if let FunKind::CompilerInternal(Internal::Check { trans, var, .. }) = k {
-                    v.extend(trans.exprs());
-                    v.push(var);
+                if let FunKind::CompilerInternal(f) = k {
+                    v.extend(f.exprs());
                 }
                 v.extend(args.iter());
                 v
@@ -513,9 +588,8 @@ impl Expr {
             ExprP::Var(_) | ExprP::Lit(..) => vec![],
             ExprP::FunApp(k, args) => {
                 let mut v: Vec<&mut Expr> = Vec::new();
-                if let FunKind::CompilerInternal(Internal::Check { trans, var, .. }) = k {
-                    v.extend(trans.exprs_mut());
-                    v.push(var);
+                if let FunKind::CompilerInternal(f) = k {
+                    v.extend(f.exprs_mut());
                 }
                 v.extend(args.iter_mut());
                 v
@@ -812,9 +886,8 @@ impl Stmt {
             StmtP::TargetPE(e) | StmtP::JacobianPE(e) => vec![e],
             StmtP::NRFunApp(k, args) => {
                 let mut v: Vec<&Expr> = Vec::new();
-                if let FunKind::CompilerInternal(Internal::Check { trans, var, .. }) = k {
-                    v.extend(trans.exprs());
-                    v.push(var);
+                if let FunKind::CompilerInternal(f) = k {
+                    v.extend(f.exprs());
                 }
                 v.extend(args.iter());
                 v
@@ -847,9 +920,8 @@ impl Stmt {
             StmtP::TargetPE(e) | StmtP::JacobianPE(e) => vec![e],
             StmtP::NRFunApp(k, args) => {
                 let mut v: Vec<&mut Expr> = Vec::new();
-                if let FunKind::CompilerInternal(Internal::Check { trans, var, .. }) = k {
-                    v.extend(trans.exprs_mut());
-                    v.push(var);
+                if let FunKind::CompilerInternal(f) = k {
+                    v.extend(f.exprs_mut());
                 }
                 v.extend(args.iter_mut());
                 v
@@ -964,7 +1036,10 @@ pub struct Program {
     pub input_vars: Vec<(String, Loc, SizedType)>,
     pub prepare_data: Vec<Stmt>,
     pub log_prob: Vec<Stmt>,
+    pub reverse_mode_log_prob: Vec<Stmt>,
     pub generate_quantities: Vec<Stmt>,
+    pub transform_inits: Vec<Stmt>,
+    pub unconstrain_array: Vec<Stmt>,
     pub output_vars: OutputVars,
     pub name: String,
 }

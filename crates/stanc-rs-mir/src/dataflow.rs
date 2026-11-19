@@ -295,9 +295,8 @@ pub fn stmt_rhs(s: &Stmt) -> Vec<&Expr> {
         StmtP::For { lower, upper, .. } => vec![lower, upper],
         StmtP::NRFunApp(k, args) => {
             let mut v: Vec<&Expr> = args.iter().collect();
-            if let FunKind::CompilerInternal(Internal::Check { trans, var, .. }) = k {
-                v.extend(trans.exprs());
-                v.push(var);
+            if let FunKind::CompilerInternal(f) = k {
+                v.extend(f.exprs());
             }
             v
         }

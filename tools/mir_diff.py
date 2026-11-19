@@ -8,7 +8,8 @@ Usage (from the repository root, after `cargo build --release -p stanc-rs`):
 
 STANC3_DIR is a checkout of stanc3 and STANC a stanc3 binary of the same version. Reports on
 how many programs the printed MIR is identical. With OUT_FILE, both texts of every mismatch are
-written there. Flags after `--` are passed to both compilers.
+written there. Flags after `--` are passed to both compilers; a `--debug-*-mir-pretty` flag
+among them replaces `--debug-mir-pretty`, to compare another stage of the MIR.
 """
 import concurrent.futures as cf
 import os
@@ -23,6 +24,9 @@ root = os.path.join(os.path.abspath(args[0]), "test", "integration")
 st = os.path.abspath(args[1])
 out = args[2] if len(args) > 2 else None
 rs = os.path.join(repo, "target", "release", "stanc-rs")
+stage = next((f for f in extra if f.startswith("--debug-") and f.endswith("mir-pretty")),
+             "--debug-mir-pretty")
+extra = [f for f in extra if f != stage]
 good = sorted(
     os.path.relpath(os.path.join(d, f), root)
     for d, _, fs in os.walk(os.path.join(root, "good"))
@@ -33,10 +37,10 @@ good = sorted(
 
 def one(p):
     inc = f"included,{os.path.dirname(p)}"
-    a = subprocess.run([st, f"--include-paths={inc}", "--o=/dev/null", "--debug-mir-pretty",
+    a = subprocess.run([st, f"--include-paths={inc}", "--o=/dev/null", stage,
                         *extra, p], cwd=root, capture_output=True, text=True,
                        stdin=subprocess.DEVNULL)
-    b = subprocess.run([rs, "check", p, "--include-paths", inc, "--debug-mir-pretty", *extra],
+    b = subprocess.run([rs, "check", p, "--include-paths", inc, stage, *extra],
                        cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     return p, a.returncode == 0, a.stdout.strip(), b.stdout.strip()
 
