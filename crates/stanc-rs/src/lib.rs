@@ -38,6 +38,8 @@ pub struct Options {
     pub include_paths: Vec<PathBuf>,
     /// Accept functions that are declared without a definition.
     pub allow_undefined: bool,
+    /// Warn about variables that may be read before they are assigned (`--warn-uninitialized`).
+    pub warn_uninitialized: bool,
 }
 
 /// A successfully checked program.
@@ -67,11 +69,104 @@ impl Checked {
             stanc3_typing: true,
             ..self.check_options.clone()
         };
-        match stanc_rs_semantic::check_program(&self.ast, &copts) {
-            Ok(c) => stanc_rs_mir::lower_program(&c.program, &self.ast),
-            Err(_) => stanc_rs_mir::lower_program(&self.typed, &self.ast),
-        }
+        lower_stanc3(&self.ast, &copts)
+            .unwrap_or_else(|| stanc_rs_mir::lower_program(&self.typed, &self.ast))
     }
+}
+
+/// Lowers a program to the MIR from a check that types it as stanc3 does.
+fn lower_stanc3(
+    ast: &Program,
+    copts: &stanc_rs_semantic::CheckOptions,
+) -> Option<stanc_rs_mir::mir::Program> {
+    let copts = stanc_rs_semantic::CheckOptions {
+        stanc3_typing: true,
+        ..copts.clone()
+    };
+    let c = stanc_rs_semantic::check_program(ast, &copts).ok()?;
+    Some(stanc_rs_mir::lower_program(&c.program, ast))
+}
+
+/// A location as stanc3 orders them (`Location.t`): file name, line, column, and the location
+/// of the include that pulled the file in.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct LocKey {
+    file: String,
+    line: usize,
+    col: usize,
+    from: Option<Box<LocKey>>,
+}
+
+fn loc_key(sources: &SourceMap, file: u32, off: usize) -> LocKey {
+    let f = &sources.files[file as usize];
+    let (line, col) = f.line_col(off);
+    LocKey {
+        file: f.name.clone(),
+        line,
+        col,
+        from: f
+            .included_from
+            .map(|s| Box::new(loc_key(sources, s.file, s.start as usize))),
+    }
+}
+
+/// Renders warnings at MIR locations in stanc3's order, which sorts them by location and then
+/// by message.
+fn render_mir_warnings(
+    sources: &SourceMap,
+    ws: Vec<(stanc_rs_syntax::Span, String)>,
+) -> Vec<String> {
+    let mut keyed: Vec<((LocKey, LocKey), String, stanc_rs_syntax::Span)> = ws
+        .into_iter()
+        .map(|(s, m)| {
+            let k = (
+                loc_key(sources, s.file, s.start as usize),
+                loc_key(sources, s.file, s.end as usize),
+            );
+            (k, m, s)
+        })
+        .collect();
+    keyed.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+    keyed.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
+    keyed
+        .into_iter()
+        .map(|(_, m, s)| {
+            stanc_rs_syntax::Diagnostic::new(stanc_rs_syntax::DiagnosticKind::Warning, s, m)
+                .render(sources)
+        })
+        .collect()
+}
+
+/// `--warn-uninitialized`: reads of variables that may happen before they are assigned. Each
+/// variable is reported once, at its first such read.
+fn uninitialized_warnings(sources: &SourceMap, mir: &stanc_rs_mir::mir::Program) -> Vec<String> {
+    let mut vars: Vec<((LocKey, LocKey), stanc_rs_syntax::Span, String)> =
+        stanc_rs_mir::dataflow::uninitialized_variables(mir)
+            .into_iter()
+            .filter_map(|(l, v)| {
+                let s = l.span()?;
+                let k = (
+                    loc_key(sources, s.file, s.start as usize),
+                    loc_key(sources, s.file, s.end as usize),
+                );
+                Some((k, s, v))
+            })
+            .collect();
+    vars.sort_by(|a, b| (&a.0, &a.2).cmp(&(&b.0, &b.2)));
+    let mut seen = std::collections::HashSet::new();
+    let ws = vars
+        .into_iter()
+        .filter(|(_, _, v)| seen.insert(v.clone()))
+        .map(|(_, s, v)| {
+            (
+                s,
+                format!(
+                    "The variable {v} may not have been assigned a value before its first use."
+                ),
+            )
+        })
+        .collect();
+    render_mir_warnings(sources, ws)
 }
 
 /// A successfully compiled program.
@@ -181,6 +276,12 @@ pub fn check_source(name: &str, text: &str, opts: &Options) -> Result<Checked, S
         .chain(&checked.warnings)
         .map(|w| w.render(&sources))
         .collect();
+    let mut warnings: Vec<String> = warnings;
+    if opts.warn_uninitialized
+        && let Some(mir) = lower_stanc3(&ast, &copts)
+    {
+        warnings.extend(uninitialized_warnings(&sources, &mir));
+    }
     let included_files = sources.files[1..].iter().map(|f| f.name.clone()).collect();
     Ok(Checked {
         ast,

@@ -8,7 +8,7 @@ use stanc_rs_semantic::typed::{
     FunKind as TFunKind, Origin, TExpr, TExprKind, TIndex, TLValue, TLValueKind, TPrintable,
     TProgram, TSizedType, TStmt, TStmtKind, TTransformation, TTruncation,
 };
-use stanc_rs_semantic::types::Ad;
+use stanc_rs_semantic::types::{Ad, Promotion};
 use stanc_rs_syntax::Span;
 use stanc_rs_syntax::ast::{self, AssignOp, BinOp, PrefixOp, UnsizedType};
 
@@ -302,6 +302,8 @@ impl<'a> Lower<'a> {
                 self.exprs(xs),
             )),
             TExprKind::TupleProjection(x, i) => w(ExprP::TupleProjection(b(x), *i)),
+            // Parentheses, in a program typed as stanc3 types it.
+            TExprKind::Promotion(x, Promotion::None) => self.expr(x),
             TExprKind::Promotion(x, _) => w(ExprP::Promotion(b(x), scalarize(&e.ty), e.ad.clone())),
         }
     }

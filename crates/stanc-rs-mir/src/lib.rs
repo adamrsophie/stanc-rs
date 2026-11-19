@@ -2,6 +2,7 @@
 //! from the typed program, the MIR printer, dataflow analysis, optimization passes, and the
 //! pedantic mode warnings.
 
+pub mod dataflow;
 pub mod lower;
 pub mod mir;
 pub mod pretty;

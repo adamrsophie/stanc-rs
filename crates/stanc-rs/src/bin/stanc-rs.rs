@@ -24,6 +24,7 @@ OPTIONS:
                               includes, strip-comments (comma-separated)
     --print-canonical         For format: --canonicalize deprecations,parentheses,braces,includes
     --json-diagnostics        For check: print errors and warnings to stdout as JSON
+    --warn-uninitialized      Warn about variables that may be read before they are assigned
     --debug-mir-pretty        For check: print the MIR as stanc3 --debug-mir-pretty does
     --help, -h                Print this message
     --version, -V             Print the version
@@ -79,6 +80,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 );
             }
             "--allow-undefined" => opts.allow_undefined = true,
+            "--warn-uninitialized" => opts.warn_uninitialized = true,
             "--canonicalize" => {
                 let v = stanc_rs::syntax::canonicalize::Settings::parse(&value(&a)?)?;
                 // Repeated options accumulate, as in stanc3.

@@ -562,7 +562,19 @@ impl Checker {
         match &e.kind {
             ExprKind::Paren(inner) => {
                 let t = self.check_expr(ctx, inner)?;
-                Ok(TExpr { span, ..t })
+                if self.opts.stanc3_typing {
+                    // stanc3 keeps the parentheses as a node of their own, which the MIR
+                    // drops; an empty promotion stands in for it.
+                    let (ty, ad) = (t.ty.clone(), t.ad.clone());
+                    Ok(texpr(
+                        TExprKind::Promotion(Box::new(t), Promotion::None),
+                        ty,
+                        ad,
+                        span,
+                    ))
+                } else {
+                    Ok(TExpr { span, ..t })
+                }
             }
             ExprKind::IntNumeral(s) => {
                 let digits: String = s.chars().filter(|c| *c != '_').collect();
@@ -1505,9 +1517,16 @@ impl Checker {
         let mut it = tes.into_iter();
         let f = it.next().expect("function argument");
         let fty = UnsizedType::Function(Box::new(ft));
+        // stanc3 gives the function argument the location of the whole call.
+        let fspan = if self.opts.stanc3_typing {
+            span
+        } else {
+            f.span
+        };
         let f = TExpr {
             ty: fty,
             ad: Ad::DataOnly,
+            span: fspan,
             ..f
         };
         let mut args = vec![f];
