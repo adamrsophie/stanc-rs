@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use stanc_rs_semantic::check::{operator_return_type, stan_math_return_type};
 
-use crate::dataflow::{Graph, Lattice, mfp};
+use crate::dataflow::{Graph, Lattice, Powerset, mfp};
 use crate::mir::*;
 
 /// A statement the partial evaluator proves always fails, with its location and message.
@@ -1007,13 +1007,13 @@ fn eval_stmt_inner(mut info: DeclSizes, s: &Stmt) -> Result<(DeclSizes, Stmt), R
 
 /// stanc3's `transform_program`: the transformation applied to all blocks packed in one
 /// statement list, and separately to each function body.
-fn transform_program(p: &mut Program, f: &impl Fn(&Stmt) -> Stmt) {
+pub(crate) fn transform_program(p: &mut Program, f: &impl Fn(&Stmt) -> Stmt) {
     let slist = |ss: Vec<Stmt>| Stmt::new(StmtP::SList(ss), Loc::EMPTY);
     let packed = slist(vec![
         slist(std::mem::take(&mut p.prepare_data)),
-        slist(vec![]),
+        slist(std::mem::take(&mut p.transform_inits)),
         slist(std::mem::take(&mut p.log_prob)),
-        slist(vec![]),
+        slist(std::mem::take(&mut p.reverse_mode_log_prob)),
         slist(std::mem::take(&mut p.generate_quantities)),
     ]);
     let packed = f(&f(&packed));
@@ -1025,7 +1025,9 @@ fn transform_program(p: &mut Program, f: &impl Fn(&Stmt) -> Stmt) {
         _ => unreachable!(),
     };
     p.prepare_data = take(0);
+    p.transform_inits = take(1);
     p.log_prob = take(2);
+    p.reverse_mode_log_prob = take(3);
     p.generate_quantities = take(4);
     for fd in &mut p.functions {
         if let Some(b) = &fd.body {
@@ -1105,7 +1107,7 @@ fn subst_expr(m: &BTreeMap<String, Expr>, e: &mut Expr) {
 
 /// `subst_stmt_base`: substitutes into the expressions directly in a statement; of an
 /// assignment, only the outer indices and the value.
-fn subst_stmt_base(m: &BTreeMap<String, Expr>, s: &mut Stmt) {
+pub(crate) fn subst_stmt_base(m: &BTreeMap<String, Expr>, s: &mut Stmt) {
     if m.is_empty() {
         return;
     }
@@ -1262,6 +1264,381 @@ pub fn copy_propagation(p: &mut Program) {
         m
     };
     transform_program(p, &|s| propagation(s, &transfer));
+}
+
+/// `can_side_effect_top_expr`.
+fn can_side_effect_top(e: &Expr) -> bool {
+    match &e.pattern {
+        ExprP::FunApp(FunKind::UserDefined(_, Suffix::Target | Suffix::Jacobian), _)
+        | ExprP::FunApp(FunKind::StanLib(_, Suffix::Jacobian), _) => true,
+        ExprP::FunApp(FunKind::CompilerInternal(f), _) => f.can_side_effect(),
+        _ => false,
+    }
+}
+
+/// `Mir_utils.expr_any`: the predicate is not applied to an indexing itself.
+fn expr_any(e: &Expr, pred: &impl Fn(&Expr) -> bool) -> bool {
+    if !matches!(e.pattern, ExprP::Indexed(..)) && pred(e) {
+        return true;
+    }
+    e.children().into_iter().any(|c| expr_any(c, pred))
+}
+
+/// `cannot_remove_expr`.
+fn cannot_remove_expr(e: &Expr) -> bool {
+    expr_any(e, &can_side_effect_top)
+}
+
+/// `free_vars_expr`: the variables and called user-defined functions.
+fn free_vars_expr(e: &Expr, out: &mut BTreeSet<String>) {
+    match &e.pattern {
+        ExprP::Var(x) | ExprP::FunApp(FunKind::UserDefined(x, _), _) => {
+            out.insert(x.clone());
+        }
+        _ => {}
+    }
+    for c in e.children() {
+        free_vars_expr(c, out);
+    }
+}
+
+/// `top_free_vars_stmt`: the variables a statement reads, without its sub-statements.
+fn top_free_vars(s: &Stmt) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    match &s.pattern {
+        StmtP::Decl {
+            init: DeclInit::Assign(e),
+            ..
+        }
+        | StmtP::Return(Some(e))
+        | StmtP::TargetPE(e)
+        | StmtP::JacobianPE(e)
+        | StmtP::IfElse(e, ..)
+        | StmtP::While(e, _) => free_vars_expr(e, &mut out),
+        StmtP::Assignment(lv, _, e) => {
+            free_vars_expr(e, &mut out);
+            for x in lv.exprs() {
+                free_vars_expr(x, &mut out);
+            }
+        }
+        StmtP::NRFunApp(k, args) => {
+            if let FunKind::UserDefined(f, _) = k {
+                out.insert(f.clone());
+            }
+            if let FunKind::CompilerInternal(f) = k {
+                for x in f.exprs() {
+                    free_vars_expr(x, &mut out);
+                }
+            }
+            for x in args {
+                free_vars_expr(x, &mut out);
+            }
+        }
+        StmtP::For { lower, upper, .. } => {
+            free_vars_expr(lower, &mut out);
+            free_vars_expr(upper, &mut out);
+        }
+        _ => {}
+    }
+    out
+}
+
+/// The variables that are always observable (`Monotone_framework.globals`): output and input
+/// variables, the variables declared in `prepare_data`, and `target`.
+fn globals(p: &Program) -> BTreeSet<String> {
+    let mut g: BTreeSet<String> = p.output_vars.iter().map(|(n, ..)| n.clone()).collect();
+    g.extend(p.input_vars.iter().map(|(n, ..)| n.clone()));
+    program_var_declarations(&p.prepare_data, &mut g);
+    g.insert("target".to_string());
+    g
+}
+
+/// Applies `f` bottom up with each statement's preorder label (`map_rec_stmt_loc_num`).
+fn map_labeled(s: &mut Stmt, label: &mut usize, f: &mut impl FnMut(usize, &mut Stmt)) {
+    let l = *label;
+    *label += 1;
+    for c in s.children_mut() {
+        map_labeled(c, label, f);
+    }
+    f(l, s);
+}
+
+/// `dead_code_elimination`: removes assignments to variables that are not live afterwards,
+/// and statements that do nothing.
+pub fn dead_code_elimination(p: &mut Program) {
+    let never_kill = globals(p);
+    let transform = |s: &Stmt| -> Stmt {
+        let g = Graph::build(s, false).reversed();
+        let live = mfp(
+            &g,
+            &Powerset(never_kill.clone()),
+            |l, p: &BTreeSet<String>| {
+                let node = g.nodes[l];
+                let kill: Option<&str> = match &node.pattern {
+                    StmtP::Assignment(lv, ..)
+                        if lv.idx.is_empty() && matches!(lv.base, LBase::Variable(_)) =>
+                    {
+                        Some(lv.variable())
+                    }
+                    StmtP::Decl { id, .. } => Some(id),
+                    _ => None,
+                };
+                let mut out = top_free_vars(node);
+                out.extend(
+                    p.iter()
+                        .filter(|v| Some(v.as_str()) != kill || never_kill.contains(*v))
+                        .cloned(),
+                );
+                out
+            },
+        );
+        let mut out = s.clone();
+        let is_skip = |s: &Stmt| s.pattern == StmtP::Skip;
+        map_labeled(&mut out, &mut 0, &mut |l, st| {
+            let live = &live[l].entry;
+            let p = std::mem::replace(&mut st.pattern, StmtP::Skip);
+            st.pattern = match p {
+                StmtP::Assignment(lv, t, rhs) => {
+                    if live.contains(lv.variable())
+                        || cannot_remove_expr(&rhs)
+                        || lv
+                            .idx
+                            .iter()
+                            .any(|i| i.exprs().into_iter().any(cannot_remove_expr))
+                    {
+                        StmtP::Assignment(lv, t, rhs)
+                    } else {
+                        StmtP::Skip
+                    }
+                }
+                StmtP::Decl {
+                    ad,
+                    id,
+                    ty,
+                    init: DeclInit::Assign(e),
+                } => {
+                    let init = if live.contains(&id) || cannot_remove_expr(&e) {
+                        DeclInit::Assign(e)
+                    } else {
+                        DeclInit::Uninit
+                    };
+                    StmtP::Decl { ad, id, ty, init }
+                }
+                StmtP::IfElse(e, b1, b2) => {
+                    if !cannot_remove_expr(&e)
+                        && is_skip(&b1)
+                        && b2.as_ref().is_none_or(|b| is_skip(b))
+                    {
+                        StmtP::Skip
+                    } else if is_int(0, &e) {
+                        b2.map_or(StmtP::Skip, |b| b.pattern)
+                    } else if matches!(e.pattern, ExprP::Lit(..)) {
+                        b1.pattern
+                    } else {
+                        StmtP::IfElse(e, b1, b2)
+                    }
+                }
+                StmtP::While(e, b) => {
+                    if (!cannot_remove_expr(&e) && b.pattern == StmtP::Break) || is_int(0, &e) {
+                        StmtP::Skip
+                    } else {
+                        StmtP::While(e, b)
+                    }
+                }
+                StmtP::For {
+                    loopvar,
+                    lower,
+                    upper,
+                    body,
+                } => {
+                    if !cannot_remove_expr(&lower)
+                        && !cannot_remove_expr(&upper)
+                        && matches!(body.pattern, StmtP::Skip | StmtP::Break | StmtP::Continue)
+                    {
+                        StmtP::Skip
+                    } else {
+                        StmtP::For {
+                            loopvar,
+                            lower,
+                            upper,
+                            body,
+                        }
+                    }
+                }
+                StmtP::Profile(n, l) => {
+                    let l: Vec<Stmt> = l.into_iter().filter(|x| !is_skip(x)).collect();
+                    if l.is_empty() {
+                        StmtP::Skip
+                    } else {
+                        StmtP::Profile(n, l)
+                    }
+                }
+                StmtP::Block(l) => {
+                    let l: Vec<Stmt> = l.into_iter().filter(|x| !is_skip(x)).collect();
+                    if l.is_empty() {
+                        StmtP::Skip
+                    } else {
+                        StmtP::Block(l)
+                    }
+                }
+                StmtP::SList(l) => StmtP::SList(l.into_iter().filter(|x| !is_skip(x)).collect()),
+                p => p,
+            };
+        });
+        out
+    };
+    transform_program(p, &transform);
+}
+
+/// `transform_program_blockwise`: the transformation applied to each function body and to
+/// each block (except `unconstrain_array`) on its own.
+fn transform_program_blockwise(p: &mut Program, f: &impl Fn(Option<&FunDef>, Stmt) -> Stmt) {
+    let functions = std::mem::take(&mut p.functions);
+    p.functions = functions
+        .into_iter()
+        .map(|mut fd| {
+            if let Some(b) = fd.body.take() {
+                fd.body = Some(f(Some(&fd), b));
+            }
+            fd
+        })
+        .collect();
+    for b in [
+        &mut p.prepare_data,
+        &mut p.transform_inits,
+        &mut p.log_prob,
+        &mut p.reverse_mode_log_prob,
+        &mut p.generate_quantities,
+    ] {
+        let s = f(None, Stmt::new(StmtP::SList(std::mem::take(b)), Loc::EMPTY));
+        let StmtP::SList(l) = s.pattern else {
+            panic!("a transformed block is not a statement list")
+        };
+        *b = l;
+    }
+}
+
+/// Applies `f` to every statement, bottom up.
+fn map_rec(s: &mut Stmt, f: &impl Fn(StmtP) -> StmtP) {
+    for c in s.children_mut() {
+        map_rec(c, f);
+    }
+    let p = std::mem::replace(&mut s.pattern, StmtP::Skip);
+    s.pattern = f(p);
+}
+
+/// `list_collapsing`: splices statement lists into the enclosing lists and blocks.
+pub fn list_collapsing(p: &mut Program) {
+    fn collapse(l: Vec<Stmt>) -> Vec<Stmt> {
+        let mut out = Vec::new();
+        for x in l {
+            match x.pattern {
+                StmtP::SList(inner) => out.extend(inner),
+                _ => out.push(x),
+            }
+        }
+        out
+    }
+    transform_program_blockwise(p, &|_, mut s| {
+        map_rec(&mut s, &|p| match p {
+            StmtP::Block(l) => StmtP::Block(collapse(l)),
+            StmtP::SList(l) => StmtP::SList(collapse(l)),
+            p => p,
+        });
+        s
+    });
+}
+
+/// `block_fixing`: makes statement lists under conditionals and loops into blocks.
+pub fn block_fixing(p: &mut Program) {
+    let fix = |b: &mut Stmt| {
+        if let StmtP::SList(l) = &mut b.pattern {
+            b.pattern = StmtP::Block(std::mem::take(l));
+        }
+    };
+    transform_program_blockwise(p, &|_, mut s| {
+        map_rec(&mut s, &|mut p| {
+            match &mut p {
+                StmtP::IfElse(_, t, e) => {
+                    fix(t);
+                    if let Some(e) = e {
+                        fix(e);
+                    }
+                }
+                StmtP::While(_, b) | StmtP::For { body: b, .. } => fix(b),
+                _ => {}
+            }
+            p
+        });
+        s
+    });
+}
+
+/// `allow_uninitialized_decls`: declarations that the next statement assigns as a whole need
+/// no initialization.
+pub fn allow_uninitialized_decls(p: &mut Program) {
+    fn find_assignment_idx<'a>(name: &str, s: &'a Stmt) -> Option<&'a [Index<Expr>]> {
+        match &s.pattern {
+            StmtP::Assignment(lv, ut, rhs)
+                if lv.variable() == name
+                    && !expr_var_names(rhs).contains(name)
+                    && !(rhs.meta.ad == stanc_rs_semantic::types::Ad::DataOnly
+                        && matches!(ut, UnsizedType::Array(_))) =>
+            {
+                Some(&lv.idx)
+            }
+            _ => None,
+        }
+    }
+    fn patt(s: &mut Stmt, next: Option<&Stmt>) {
+        match &mut s.pattern {
+            StmtP::Decl {
+                id,
+                init: init @ DeclInit::Default,
+                ..
+            } => {
+                if let Some(idx) = next.and_then(|n| find_assignment_idx(id, n))
+                    && idx.iter().all(|i| matches!(i, Index::All))
+                {
+                    *init = DeclInit::Uninit;
+                }
+            }
+            StmtP::Block(l) | StmtP::SList(l) | StmtP::Profile(_, l) => unenforce(l),
+            StmtP::While(_, b) | StmtP::For { body: b, .. } => patt(b, None),
+            StmtP::IfElse(_, t, e) => {
+                if let Some(e) = e {
+                    patt(e, None);
+                }
+                patt(t, None);
+            }
+            _ => {}
+        }
+    }
+    fn unenforce(l: &mut [Stmt]) {
+        for i in 0..l.len() {
+            let (head, tail) = l.split_at_mut(i + 1);
+            patt(&mut head[i], tail.first());
+        }
+    }
+    for fd in &mut p.functions {
+        if let Some(Stmt {
+            pattern: StmtP::SList(l) | StmtP::Block(l),
+            ..
+        }) = &mut fd.body
+        {
+            unenforce(l);
+        }
+    }
+    for b in [
+        &mut p.prepare_data,
+        &mut p.log_prob,
+        &mut p.reverse_mode_log_prob,
+        &mut p.generate_quantities,
+        &mut p.transform_inits,
+        &mut p.unconstrain_array,
+    ] {
+        unenforce(b);
+    }
 }
 
 /// The passes stanc3 runs before its pedantic analysis: constant and copy propagation and the

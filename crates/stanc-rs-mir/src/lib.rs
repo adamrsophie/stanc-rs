@@ -3,6 +3,7 @@
 //! pedantic mode warnings.
 
 pub mod dataflow;
+pub mod inline;
 pub mod lower;
 pub mod mir;
 pub mod optimize;

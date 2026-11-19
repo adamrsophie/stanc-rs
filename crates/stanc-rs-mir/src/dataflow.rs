@@ -20,6 +20,8 @@ pub struct Graph<'a> {
     pub parents: Vec<BTreeSet<usize>>,
     /// The labels with no predecessors, where execution starts.
     pub initials: BTreeSet<usize>,
+    /// The labels where execution of the whole statement ends.
+    pub exits: BTreeSet<usize>,
 }
 
 #[derive(Clone, Default)]
@@ -58,12 +60,13 @@ impl<'a> Graph<'a> {
             succs: Vec::new(),
             parents: Vec::new(),
             initials: BTreeSet::new(),
+            exits: BTreeSet::new(),
         };
         g.label(root);
         let n = g.nodes.len();
         g.preds = vec![BTreeSet::new(); n];
         g.parents = vec![BTreeSet::new(); n];
-        g.cf(0, None, CfState::default(), flatten_loops);
+        g.exits = g.cf(0, None, CfState::default(), flatten_loops).exits;
         g.succs = vec![BTreeSet::new(); n];
         for l in 0..n {
             if g.preds[l].is_empty() {
@@ -168,6 +171,19 @@ impl<'a> Graph<'a> {
         self.preds[l] = preds;
         self.parents[l] = parents;
         out
+    }
+
+    /// The inverse flowgraph, for backward analyses (`inverse_flowgraph_of_stmt`).
+    pub fn reversed(&self) -> Graph<'a> {
+        Graph {
+            nodes: self.nodes.clone(),
+            children: self.children.clone(),
+            preds: self.succs.clone(),
+            succs: self.preds.clone(),
+            parents: self.parents.clone(),
+            initials: self.exits.clone(),
+            exits: self.initials.clone(),
+        }
     }
 
     /// The labels reachable from the initial ones (`all_labels`).

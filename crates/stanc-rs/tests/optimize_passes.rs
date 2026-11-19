@@ -5,7 +5,7 @@
 //! compares the printed MIR with stanc3's expected text, ignoring blank lines and the common
 //! indentation.
 
-use stanc_rs::mir::{mir::Program, optimize};
+use stanc_rs::mir::{mir::*, optimize};
 
 struct Case {
     name: String,
@@ -54,6 +54,11 @@ fn apply(pass: &str, p: &mut Program) -> Option<()> {
         "constant_propagation" => optimize::constant_propagation(p, false),
         "copy_propagation" => optimize::copy_propagation(p),
         "partial_evaluation" => optimize::partial_evaluation(p),
+        "function_inlining" => stanc_rs::mir::inline::function_inlining(p),
+        "dead_code_elimination" => optimize::dead_code_elimination(p),
+        "list_collapsing" => optimize::list_collapsing(p),
+        "block_fixing" => optimize::block_fixing(p),
+        "allow_uninitialized_decls" => optimize::allow_uninitialized_decls(p),
         _ => return None,
     }
     Some(())
@@ -95,7 +100,11 @@ fn passes_match_stanc3_unit_tests() {
     };
     let mut failures = Vec::new();
     let mut run = 0;
-    for c in cases() {
+    // Cases that build the MIR by hand are in `dead_code_on_real_zero_conditions`.
+    for c in cases()
+        .into_iter()
+        .filter(|c| !c.name.ends_with("(direct MIR)"))
+    {
         let checked = stanc_rs::check_source("test.stan", &c.program, &opts)
             .unwrap_or_else(|e| panic!("{}: {e}", c.name));
         let mut mir = checked.mir();
@@ -112,6 +121,7 @@ fn passes_match_stanc3_unit_tests() {
             ));
         }
     }
+    eprintln!("{run} cases run");
     assert!(run > 0);
     assert!(
         failures.is_empty(),
@@ -119,4 +129,55 @@ fn passes_match_stanc3_unit_tests() {
         failures.len(),
         failures.concat()
     );
+}
+
+/// stanc3's "real zero" dead code cases, which build the MIR by hand because the type checker
+/// rejects a real condition that optimization can produce.
+#[test]
+fn dead_code_on_real_zero_conditions() {
+    let opts = stanc_rs::Options {
+        model_name: Some(String::new()),
+        ..Default::default()
+    };
+    let base = stanc_rs::check_source("test.stan", "model {}\n", &opts)
+        .unwrap()
+        .mir();
+    let zero = || {
+        let mut e = Expr::new(ExprP::Lit(LitType::Real, "0.".into()), Meta::empty());
+        e.meta.ty = UnsizedType::Real;
+        e
+    };
+    let print = |s: &str| {
+        Stmt::new(
+            StmtP::NRFunApp(
+                FunKind::CompilerInternal(Internal::Print),
+                vec![Expr::str(s)],
+            ),
+            Loc::EMPTY,
+        )
+    };
+    let gq = "generate_quantities {\n  if(PNot__(emit_transformed_parameters__ || emit_generated_quantities__)) return;\n  if(PNot__(emit_generated_quantities__)) return;\n}";
+    for (stmt, want) in [
+        (
+            StmtP::IfElse(
+                zero(),
+                Box::new(print("hello")),
+                Some(Box::new(print("goodbye"))),
+            ),
+            format!("log_prob {{\n  FnPrint__(\"goodbye\");\n}}\n{gq}"),
+        ),
+        (
+            StmtP::While(zero(), Box::new(print("hello"))),
+            gq.to_string(),
+        ),
+        (
+            StmtP::IfElse(zero(), Box::new(print("hello")), None),
+            gq.to_string(),
+        ),
+    ] {
+        let mut p = base.clone();
+        p.log_prob = vec![Stmt::new(stmt, Loc::EMPTY)];
+        optimize::dead_code_elimination(&mut p);
+        assert_eq!(normalize(&stanc_rs::mir::pretty::program(&p)), want);
+    }
 }
