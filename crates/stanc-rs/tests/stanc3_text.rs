@@ -166,3 +166,27 @@ Warning in 'p.stan', line 17, column 2 to column 26:
 "#
     );
 }
+
+#[test]
+fn tied_signatures_listed_in_stanc3_order() {
+    let src = "data {\n  vector[4] x;\n}\nparameters {\n  vector[4] theta;\n}\nmodel {\n  target += bernoulli_logit_lpmf(x, theta);\n}\n";
+    let Err(err) = stanc_rs::check_source("s.stan", src, &Default::default()) else {
+        panic!("the program should be rejected")
+    };
+    let tail = err.split("Available signatures:\n").nth(1).unwrap();
+    assert_eq!(
+        tail,
+        r#"(array[] int, row_vector) => real
+  The first argument must be array[] int but got vector
+(array[] int, vector) => real
+  The first argument must be array[] int but got vector
+(array[] int, array[] real) => real
+  The first argument must be array[] int but got vector
+(array[] int, real) => real
+  The first argument must be array[] int but got vector
+(int, row_vector) => real
+  The first argument must be int but got vector
+(Additional signatures omitted)
+"#
+    );
+}

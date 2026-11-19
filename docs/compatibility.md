@@ -20,7 +20,7 @@ release, with stanmath-rs at revision `04dc87184161bf29cbc035a32eb0407b14169900`
 | Warning text identical to stanc3's, on the 52 `good` programs with warnings | 52 of 52 |
 | `--debug-mir-pretty` output identical to stanc3's | 1244 of 1244 |
 | `--warn-uninitialized` text identical, on the 208 programs with such warnings | 208 of 208 |
-| `--warn-pedantic` text identical on `good` programs | 956 of 958 (stanc3 crashes on the other 2) |
+| `--warn-pedantic` text identical, on the 958 `good` programs with such warnings | 956 of 958 (stanc3 crashes on the other 2) |
 | `good` programs translated to Rust | 1244 of 1244 |
 | Translated programs whose Rust builds (`cargo check`) | 1244 of 1244 |
 | `stanc-rs info` equal to `stanc --info` (as JSON values) | 1244 of 1244 |
@@ -78,7 +78,8 @@ stanc3 words syntax errors by the state of its Menhir parser. stanc-rs carries a
 automaton, generated from stanc3's `parser.mly` and `parser.messages` by
 `tools/menhir_tables.py`, and replays the tokens of a rejected program through it to find the
 same state, message, and location. Where several library signatures fit a call equally badly,
-they are listed in the order stanc3 generates them.
+stanc-rs lists them in the order stanc3 generates them; on the corpus, this matches stanc3's
+order every time.
 
 JSON diagnostics: `stanc-rs check --json-diagnostics` prints `{"ok", "diagnostics"}` to
 stdout, each diagnostic with its severity, kind, message, file, begin and end positions,
@@ -92,7 +93,7 @@ division, chained comparison, and matrix power warnings.
 intermediate representation (MIR). `tools/mir_diff.py` compares the output of
 `--debug-mir-pretty` with stanc3's on all 1244 integration programs, and they match. The
 uninitialized variable warnings match stanc3's on all 208 integration programs that have them.
-The pedantic warnings match on 956 of the 958 `good` programs; on the other two, stanc3 stops
+Of the 1244 `good` programs, 958 get pedantic warnings, and the text matches stanc3's on 956; on the other two, stanc3 stops
 with an internal error because an `_lp` function is called with an argument that is not a
 variable, and stanc-rs makes the factor depend on the variables of every argument.
 
