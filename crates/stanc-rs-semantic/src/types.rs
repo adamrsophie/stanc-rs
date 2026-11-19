@@ -362,6 +362,47 @@ pub fn type_promotion(
     }
 }
 
+/// stanc3's `get_type_promotion_exn`, which compares whole autodiff levels and hands the
+/// level of a tuple to each of its elements. Used where the MIR must match stanc3's.
+pub fn stanc3_type_promotion(
+    ad_requested: &Ad,
+    requested: &UnsizedType,
+    ad_current: &Ad,
+    current: &UnsizedType,
+) -> Promotion {
+    use UnsizedType::*;
+    let differs = ad_current != ad_requested;
+    match (requested, current) {
+        (Real, Real | Int) | (Vector, Vector) | (RowVector, RowVector) | (Matrix, Matrix)
+            if differs =>
+        {
+            Promotion::ToVar
+        }
+        (Complex, Real | Int | Complex)
+        | (ComplexMatrix, Matrix | ComplexMatrix)
+        | (ComplexVector, Vector | ComplexVector)
+        | (ComplexRowVector, RowVector | ComplexRowVector)
+            if differs =>
+        {
+            Promotion::ToComplexVar
+        }
+        (Real, Int) => Promotion::IntToReal,
+        (Complex, Int) => Promotion::IntToComplex,
+        (Complex, Real)
+        | (ComplexMatrix, Matrix)
+        | (ComplexVector, Vector)
+        | (ComplexRowVector, RowVector) => Promotion::RealToComplex,
+        (Array(a), Array(b)) => stanc3_type_promotion(ad_requested, a, ad_current, b),
+        (Tuple(xs), Tuple(ys)) => Promotion::Tuple(
+            xs.iter()
+                .zip(ys)
+                .map(|(x, y)| stanc3_type_promotion(ad_requested, x, ad_current, y))
+                .collect(),
+        ),
+        _ => Promotion::None,
+    }
+}
+
 /// The type after applying a promotion.
 pub fn promoted_type(t: &UnsizedType, p: &Promotion) -> UnsizedType {
     use UnsizedType::*;

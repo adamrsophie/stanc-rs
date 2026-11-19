@@ -15,6 +15,7 @@ readme = "../../README.md"
 stanc-rs-syntax.workspace = true
 stanc-rs-semantic.workspace = true
 stanc-rs-codegen.workspace = true
+stanc-rs-mir.workspace = true
 
 [lints]
 workspace = true

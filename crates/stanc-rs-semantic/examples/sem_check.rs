@@ -28,6 +28,7 @@ fn main() {
         let opts = CheckOptions {
             allow_undefined: fo,
             model_name: format!("{stem}_model"),
+            ..Default::default()
         };
         let res = parse_with(&arg, &text, &Dirs(vec![dir]), fo).and_then(|(p, sm)| {
             match check_program(&p, &opts) {

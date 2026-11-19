@@ -15,6 +15,7 @@ categories = ["compilers", "mathematics", "science"]
 [workspace.dependencies]
 stanc-rs-syntax = { path = "crates/stanc-rs-syntax", version = "0.1.0" }
 stanc-rs-semantic = { path = "crates/stanc-rs-semantic", version = "0.1.0" }
+stanc-rs-mir = { path = "crates/stanc-rs-mir", version = "0.1.0" }
 stanc-rs-codegen = { path = "crates/stanc-rs-codegen", version = "0.1.0" }
 stanc-rs-runtime = { path = "crates/stanc-rs-runtime", version = "0.1.0" }
 stanc-rs = { path = "crates/stanc-rs", version = "0.1.0" }

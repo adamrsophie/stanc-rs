@@ -24,6 +24,7 @@ OPTIONS:
                               includes, strip-comments (comma-separated)
     --print-canonical         For format: --canonicalize deprecations,parentheses,braces,includes
     --json-diagnostics        For check: print errors and warnings to stdout as JSON
+    --debug-mir-pretty        For check: print the MIR as stanc3 --debug-mir-pretty does
     --help, -h                Print this message
     --version, -V             Print the version
 ";
@@ -54,6 +55,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
     let mut canon = stanc_rs::syntax::canonicalize::Settings::default();
     let mut print_canonical = false;
     let mut json = false;
+    let mut debug_mir = false;
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
         let mut value = |flag: &str| it.next().ok_or_else(|| format!("missing value for {flag}"));
@@ -88,6 +90,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             }
             "--print-canonical" => print_canonical = true,
             "--json-diagnostics" => json = true,
+            "--debug-mir-pretty" => debug_mir = true,
             "--max-line-length" => {
                 let v = value(&a)?;
                 fopts.line_length = v
@@ -122,6 +125,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         "check" => {
             let c = stanc_rs::check_source(&file, &text, &opts)?;
             print_warnings(&c.warnings);
+            if debug_mir {
+                println!("{}", stanc_rs::mir::pretty::program(&c.mir()));
+            }
         }
         "compile" => {
             let c = stanc_rs::compile_source(&file, &text, &opts)?;

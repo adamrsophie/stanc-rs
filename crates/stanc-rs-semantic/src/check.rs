@@ -159,6 +159,10 @@ pub struct CheckOptions {
     pub allow_undefined: bool,
     /// Model name: identifiers may not equal it (stanc3 uses `<file stem>_model`).
     pub model_name: String,
+    /// Assign autodiff levels and promotions exactly as stanc3 does, for the MIR. The Rust code
+    /// generator needs the default, which marks random draws as data and makes the promotion
+    /// of an assigned value to an autodiff variable explicit.
+    pub stanc3_typing: bool,
 }
 
 /// Result of type checking: the typed program and warnings.
@@ -307,18 +311,38 @@ fn texpr(kind: TExprKind, ty: UnsizedType, ad: Ad, span: Span) -> TExpr {
     TExpr { kind, ty, ad, span }
 }
 
-/// Wraps `e` in a promotion node when `p` does something.
-fn promote(e: TExpr, p: &Promotion) -> TExpr {
-    if p.is_none() {
+/// Wraps `e` in a promotion node when `p` does something. With `stanc3`, row vector literals
+/// are promoted element by element too, as stanc3 does.
+/// With `mark_tuples`, a tuple promotion that changes nothing is marked too, as stanc3 marks the
+/// entries of array expressions.
+fn promote_ex(e: TExpr, p: &Promotion, stanc3: bool, mark_tuples: bool) -> TExpr {
+    if *p == Promotion::None || (!mark_tuples && p.is_none()) {
         return e;
     }
-    // Promote array and row-vector literals element by element.
+    // Promote array literals, and for stanc3 row vector literals, element by element.
     match e.kind {
+        TExprKind::RowVectorExpr(es) if stanc3 && !es.is_empty() => {
+            let pes: Vec<TExpr> = es
+                .into_iter()
+                .map(|x| promote_ex(x, p, true, mark_tuples))
+                .collect();
+            let ty = match &pes[0].ty {
+                UnsizedType::ComplexRowVector => UnsizedType::ComplexMatrix,
+                UnsizedType::RowVector => UnsizedType::Matrix,
+                UnsizedType::Complex => UnsizedType::ComplexRowVector,
+                _ => UnsizedType::RowVector,
+            };
+            let ad = pes[0].ad.clone();
+            texpr(TExprKind::RowVectorExpr(pes), ty, ad, e.span)
+        }
         TExprKind::ArrayExpr(es)
             if !matches!(p, Promotion::Tuple(_))
                 || matches!(e.ty.array_dims().1, UnsizedType::Tuple(_)) =>
         {
-            let pes: Vec<TExpr> = es.into_iter().map(|x| promote(x, p)).collect();
+            let pes: Vec<TExpr> = es
+                .into_iter()
+                .map(|x| promote_ex(x, p, stanc3, mark_tuples))
+                .collect();
             let ty = UnsizedType::Array(Box::new(pes[0].ty.clone()));
             let ad = pes[0].ad.clone();
             texpr(TExprKind::ArrayExpr(pes), ty, ad, e.span)
@@ -327,7 +351,11 @@ fn promote(e: TExpr, p: &Promotion) -> TExpr {
             let Promotion::Tuple(ps) = p else {
                 return texpr(TExprKind::TupleExpr(es), e.ty, e.ad, e.span);
             };
-            let pes: Vec<TExpr> = es.into_iter().zip(ps).map(|(x, p)| promote(x, p)).collect();
+            let pes: Vec<TExpr> = es
+                .into_iter()
+                .zip(ps)
+                .map(|(x, p)| promote_ex(x, p, stanc3, mark_tuples))
+                .collect();
             let ty = UnsizedType::Tuple(pes.iter().map(|x| x.ty.clone()).collect());
             let ad = Ad::Tuple(pes.iter().map(|x| x.ad.clone()).collect());
             texpr(TExprKind::TupleExpr(pes), ty, ad, e.span)
@@ -375,6 +403,10 @@ fn fun_app_ad(ty: &UnsizedType, args: &[TExpr]) -> Ad {
 }
 
 impl Checker {
+    fn promote(&self, e: TExpr, p: &Promotion) -> TExpr {
+        promote_ex(e, p, self.opts.stanc3_typing, false)
+    }
+
     // ----- Environment helpers -----
 
     fn verify_identifier(&self, id: &Ident) -> R<()> {
@@ -587,11 +619,37 @@ impl Checker {
                 let common = common_type(&ta.ty, &tb.ty);
                 let ad = Ad::lub_all([&pc.ad, &ta.ad, &tb.ad]);
                 match (pc.ty == UnsizedType::Int, common, ad) {
+                    (true, Some(ty), Some(ad)) if !is_fun_type(&ty) && self.opts.stanc3_typing => {
+                        // stanc3 marks a branch whose type or level differs from the result's.
+                        let mark = |e: TExpr| {
+                            if e.ty == ty && e.ad == ad {
+                                return e;
+                            }
+                            let p = match type_promotion(&ad, &ty, &e.ad, &e.ty) {
+                                Promotion::None => Promotion::ToVar,
+                                p => p,
+                            };
+                            let span = e.span;
+                            texpr(
+                                TExprKind::Promotion(Box::new(e), p),
+                                ty.clone(),
+                                ad.clone(),
+                                span,
+                            )
+                        };
+                        let (ta, tb) = (mark(ta), mark(tb));
+                        Ok(texpr(
+                            TExprKind::TernaryIf(Box::new(pc), Box::new(ta), Box::new(tb)),
+                            ty.clone(),
+                            ad.clone(),
+                            span,
+                        ))
+                    }
                     (true, Some(ty), Some(ad)) if !is_fun_type(&ty) => {
                         let pa = type_promotion(&ad.clone().fill_for(&ty), &ty, &ta.ad, &ta.ty);
                         let pb = type_promotion(&ad.clone().fill_for(&ty), &ty, &tb.ad, &tb.ty);
-                        let ta = promote(ta, &pa);
-                        let tb = promote(tb, &pb);
+                        let ta = self.promote(ta, &pa);
+                        let tb = self.promote(tb, &pb);
                         let ad = ad.fill_for(&ty);
                         Ok(texpr(
                             TExprKind::TernaryIf(Box::new(pc), Box::new(ta), Box::new(tb)),
@@ -690,7 +748,10 @@ impl Checker {
                 let pes: Vec<TExpr> = tes
                     .into_iter()
                     .zip(&proms)
-                    .map(|(x, p)| promote(x, p))
+                    .map(|(x, p)| {
+                        let st3 = self.opts.stanc3_typing;
+                        promote_ex(x, p, st3, st3)
+                    })
                     .collect();
                 let aty = UnsizedType::Array(Box::new(ty));
                 Ok(texpr(TExprKind::ArrayExpr(pes), aty, ad, span))
@@ -810,7 +871,7 @@ impl Checker {
         let pes: Vec<TExpr> = tes
             .into_iter()
             .zip(&proms)
-            .map(|(x, p)| promote(x, p))
+            .map(|(x, p)| self.promote(x, p))
             .collect();
         Ok(texpr(TExprKind::RowVectorExpr(pes), ty, ad, span))
     }
@@ -831,7 +892,13 @@ impl Checker {
         let ad = Ad::lub_all(es.iter().map(|e| &e.ad)).unwrap_or(Ad::DataOnly);
         let proms = es
             .iter()
-            .map(|e| type_promotion(&ad, &ty, &e.ad, &e.ty))
+            .map(|e| {
+                if self.opts.stanc3_typing {
+                    stanc3_type_promotion(&ad, &ty, &e.ad, &e.ty)
+                } else {
+                    type_promotion(&ad, &ty, &e.ad, &e.ty)
+                }
+            })
             .collect();
         Ok((ad, ty, proms))
     }
@@ -982,8 +1049,8 @@ impl Checker {
         let ad = Ad::lub_all([&l.ad, &r.ad]);
         match (self.operator_return(key, &args), ad) {
             (Some((Some(ty), ps)), Some(ad)) => {
-                let l = promote(l, &ps[0]);
-                let r = promote(r, &ps[1]);
+                let l = self.promote(l, &ps[0]);
+                let r = self.promote(r, &ps[1]);
                 let ad = ad.fill_for(&ty);
                 Ok(texpr(
                     TExprKind::BinOp(Box::new(l), op, Box::new(r)),
@@ -1291,10 +1358,12 @@ impl Checker {
                 let args: Vec<TExpr> = tes
                     .into_iter()
                     .zip(&promotions)
-                    .map(|(e, p)| promote(e, p))
+                    .map(|(e, p)| self.promote(e, p))
                     .collect();
                 // Library random draws are data, whatever their arguments.
-                let ad = if kind == FunKind::StanLib && id.name.ends_with("_rng") {
+                let ad = if self.opts.stanc3_typing {
+                    fun_app_ad(&ty, &args)
+                } else if kind == FunKind::StanLib && id.name.ends_with("_rng") {
                     Ad::DataOnly.fill_for(&ty)
                 } else if kind == FunKind::UserDefined
                     && (id.name.ends_with("_lp") || id.name.ends_with("_jacobian"))
@@ -1442,7 +1511,7 @@ impl Checker {
             ..f
         };
         let mut args = vec![f];
-        args.extend(it.zip(ps.iter().skip(1)).map(|(e, p)| promote(e, p)));
+        args.extend(it.zip(ps.iter().skip(1)).map(|(e, p)| self.promote(e, p)));
         let ad = fun_app_ad(&ret, &args);
         Ok(texpr(
             TExprKind::FunApp {
@@ -1691,7 +1760,7 @@ impl Checker {
             Ad::DataOnly,
             fname.span,
         );
-        let tupl = promote(tupl, &Promotion::Tuple(ps[required.len()..].to_vec()));
+        let tupl = self.promote(tupl, &Promotion::Tuple(ps[required.len()..].to_vec()));
         Ok((f, tupl))
     }
 
@@ -1736,7 +1805,12 @@ impl Checker {
             let n = helper.len().min(it.len());
             let for_prob: Vec<TExpr> = it.drain(..n).collect();
             match check_compatible_args(0, &helper, &arg_types(&for_prob)) {
-                Ok(ps) => args.extend(for_prob.into_iter().zip(&ps).map(|(e, p)| promote(e, p))),
+                Ok(ps) => args.extend(
+                    for_prob
+                        .into_iter()
+                        .zip(&ps)
+                        .map(|(e, p)| self.promote(e, p)),
+                ),
                 Err(e) => {
                     let loc = specialize_span(span, &e, &for_prob);
                     return err(
@@ -2179,7 +2253,10 @@ impl Checker {
                         &te.ad,
                         &te.ty,
                     );
-                    (st(TStmtKind::Return(Some(promote(te, &p)))), Rt::Complete)
+                    (
+                        st(TStmtKind::Return(Some(self.promote(te, &p)))),
+                        Rt::Complete,
+                    )
                 }
                 _ => {
                     return err(
@@ -2288,7 +2365,7 @@ impl Checker {
                         let args = tes
                             .into_iter()
                             .zip(&promotions)
-                            .map(|(e, p)| promote(e, p))
+                            .map(|(e, p)| self.promote(e, p))
                             .collect();
                         (
                             st(TStmtKind::NRFunApp {
@@ -2663,8 +2740,18 @@ impl Checker {
                         "Assignment of variable to itself.",
                     ));
                 }
-                let p = assign_promotion(&tl, &tr.ty, &tr.ad, tr.span, span)?;
-                promote(tr, &p)
+                if self.opts.stanc3_typing {
+                    // stanc3 gives the right side the level of the left before promoting it.
+                    let p = assign_promotion(&tl, &tr.ty, &tl.ad, tr.span, span)?;
+                    let tr = TExpr {
+                        ad: tl.ad.clone(),
+                        ..tr
+                    };
+                    self.promote(tr, &p)
+                } else {
+                    let p = assign_promotion(&tl, &tr.ty, &tr.ad, tr.span, span)?;
+                    self.promote(tr, &p)
+                }
             }
             AssignOp::Compound(bop) => {
                 let ok = self.compound_assign_ok(bop, &tl, &tr);
@@ -2834,7 +2921,7 @@ impl Checker {
         let mut all: Vec<TExpr> = all
             .into_iter()
             .zip(&promotions)
-            .map(|(e, p)| promote(e, p))
+            .map(|(e, p)| self.promote(e, p))
             .collect();
         let targ = all.remove(0);
         // Truncation requires both CDF variants.
@@ -3037,8 +3124,19 @@ impl Checker {
                     let tr = self.check_expr(ctx, e)?;
                     match check_same_type(0, &ut, &tr.ty) {
                         Ok(_) => {
-                            let p = type_promotion(&lad, &ut, &tr.ad, &tr.ty);
-                            Some(promote(tr, &p))
+                            if self.opts.stanc3_typing {
+                                let p = type_promotion(&lad, &ut, &lad, &tr.ty);
+                                Some(self.promote(
+                                    TExpr {
+                                        ad: lad.clone(),
+                                        ..tr
+                                    },
+                                    &p,
+                                ))
+                            } else {
+                                let p = type_promotion(&lad, &ut, &tr.ad, &tr.ty);
+                                Some(self.promote(tr, &p))
+                            }
                         }
                         Err(_) => {
                             return err(span, illtyped_assignment(&ut, &tr.ty));

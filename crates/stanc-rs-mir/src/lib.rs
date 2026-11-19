@@ -1,0 +1,9 @@
+//! The middle intermediate representation of stanc-rs, a port of stanc3 v2.40.0's MIR: lowering
+//! from the typed program, the MIR printer, dataflow analysis, optimization passes, and the
+//! pedantic mode warnings.
+
+pub mod lower;
+pub mod mir;
+pub mod pretty;
+
+pub use lower::lower_program;

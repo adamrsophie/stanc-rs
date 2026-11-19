@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 mod info;
 
 pub use stanc_rs_codegen as codegen;
+pub use stanc_rs_mir as mir;
 pub use stanc_rs_semantic as semantic;
 pub use stanc_rs_syntax as syntax;
 
@@ -49,12 +50,27 @@ pub struct Checked {
     pub warnings: Vec<String>,
     /// The files pulled in by `#include`, in the order they were read.
     pub included_files: Vec<String>,
+    /// The options the program was checked with.
+    pub check_options: stanc_rs_semantic::CheckOptions,
 }
 
 impl Checked {
     /// Model information as JSON, with the content of stanc3's `--info`.
     pub fn info(&self) -> String {
         info::info_json(&self.typed, &self.included_files)
+    }
+
+    /// The program lowered to the MIR, as stanc3 lowers it before optimization. The MIR is
+    /// lowered from a second check that types the program exactly as stanc3 does.
+    pub fn mir(&self) -> stanc_rs_mir::mir::Program {
+        let copts = stanc_rs_semantic::CheckOptions {
+            stanc3_typing: true,
+            ..self.check_options.clone()
+        };
+        match stanc_rs_semantic::check_program(&self.ast, &copts) {
+            Ok(c) => stanc_rs_mir::lower_program(&c.program, &self.ast),
+            Err(_) => stanc_rs_mir::lower_program(&self.typed, &self.ast),
+        }
     }
 }
 
@@ -157,6 +173,7 @@ pub fn check_source(name: &str, text: &str, opts: &Options) -> Result<Checked, S
     let copts = stanc_rs_semantic::CheckOptions {
         allow_undefined: opts.allow_undefined,
         model_name,
+        stanc3_typing: false,
     };
     let checked = stanc_rs_semantic::check_program(&ast, &copts).map_err(|d| d.render(&sources))?;
     let warnings = parser_warnings(&ast, &sources)
@@ -170,6 +187,7 @@ pub fn check_source(name: &str, text: &str, opts: &Options) -> Result<Checked, S
         typed: checked.program,
         warnings,
         included_files,
+        check_options: copts,
     })
 }
 
@@ -190,6 +208,7 @@ pub fn format_source(
     let copts = stanc_rs_semantic::CheckOptions {
         allow_undefined: opts.allow_undefined,
         model_name,
+        stanc3_typing: false,
     };
     let checked = stanc_rs_semantic::check_program(&ast, &copts).map_err(|d| d.render(&sources))?;
     let keep = checked.warnings.len()
@@ -245,6 +264,7 @@ pub fn check_json(name: &str, text: &str, opts: &Options) -> (bool, String) {
         Err((d, sources)) => (vec![d], sources),
         Ok((ast, sources)) => {
             let copts = stanc_rs_semantic::CheckOptions {
+                stanc3_typing: false,
                 allow_undefined: opts.allow_undefined,
                 model_name: opts
                     .model_name
@@ -280,6 +300,7 @@ pub fn compile_source(name: &str, text: &str, opts: &Options) -> Result<Compiled
     let copts = stanc_rs_semantic::CheckOptions {
         allow_undefined: opts.allow_undefined,
         model_name,
+        stanc3_typing: false,
     };
     let checked = stanc_rs_semantic::check_program(&ast, &copts).map_err(|d| d.render(&sources))?;
     let warnings = parser_warnings(&ast, &sources)

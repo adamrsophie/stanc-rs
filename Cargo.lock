@@ -159,6 +159,7 @@ name = "stanc-rs"
 version = "0.1.0"
 dependencies = [
  "stanc-rs-codegen",
+ "stanc-rs-mir",
  "stanc-rs-semantic",
  "stanc-rs-syntax",
 ]
@@ -177,6 +178,14 @@ version = "0.1.0"
 dependencies = [
  "stanc-rs",
  "stanc-rs-runtime",
+]
+
+[[package]]
+name = "stanc-rs-mir"
+version = "0.1.0"
+dependencies = [
+ "stanc-rs-semantic",
+ "stanc-rs-syntax",
 ]
 
 [[package]]
