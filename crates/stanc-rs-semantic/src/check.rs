@@ -3359,6 +3359,51 @@ impl Checker {
     }
 }
 
+/// The return type of a library function applied to arguments of these types, when exactly one
+/// signature fits best (stanc3's `stan_math_return_type`). `Some(None)` is a void function.
+pub fn stan_math_return_type(
+    name: &str,
+    args: &[(Ad, UnsizedType)],
+) -> Option<Option<UnsizedType>> {
+    if let Some(v) = signatures::variadic(name) {
+        return Some(Some(v.ret));
+    }
+    if signatures::is_reduce_sum(name) {
+        return Some(Some(UnsizedType::Real));
+    }
+    match resolve(
+        signatures::lookup(name)
+            .iter()
+            .map(|s| (s, FunKind::StanLib)),
+        args,
+    ) {
+        Match::Unique { ret, .. } => Some(ret),
+        _ => None,
+    }
+}
+
+/// The return type of an operator (by its symbol, with `u+` and `u-` for the prefix ones)
+/// applied to arguments of these types (stanc3's `operator_stan_math_return_type`).
+pub fn operator_return_type(key: &str, args: &[(Ad, UnsizedType)]) -> Option<Option<UnsizedType>> {
+    if key == "%/%" {
+        return match args {
+            [(_, UnsizedType::Int), (_, UnsizedType::Int)] => Some(Some(UnsizedType::Int)),
+            _ => None,
+        };
+    }
+    signatures::operator_functions(key).iter().find_map(|name| {
+        match resolve(
+            signatures::lookup(name)
+                .iter()
+                .map(|s| (s, FunKind::StanLib)),
+            args,
+        ) {
+            Match::Unique { ret, .. } => Some(ret),
+            _ => None,
+        }
+    })
+}
+
 /// Picks the unique cheapest compatible signature.
 fn resolve<'a>(
     cands: impl Iterator<Item = (&'a Signature, FunKind)>,

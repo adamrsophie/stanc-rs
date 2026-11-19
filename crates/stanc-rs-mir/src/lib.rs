@@ -5,6 +5,8 @@
 pub mod dataflow;
 pub mod lower;
 pub mod mir;
+pub mod optimize;
+pub mod pedantic;
 pub mod pretty;
 
 pub use lower::lower_program;

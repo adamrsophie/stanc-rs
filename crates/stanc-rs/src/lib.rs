@@ -40,6 +40,8 @@ pub struct Options {
     pub allow_undefined: bool,
     /// Warn about variables that may be read before they are assigned (`--warn-uninitialized`).
     pub warn_uninitialized: bool,
+    /// Warn about likely modeling mistakes as stanc3's pedantic mode does (`--warn-pedantic`).
+    pub warn_pedantic: bool,
 }
 
 /// A successfully checked program.
@@ -139,7 +141,10 @@ fn render_mir_warnings(
 
 /// `--warn-uninitialized`: reads of variables that may happen before they are assigned. Each
 /// variable is reported once, at its first such read.
-fn uninitialized_warnings(sources: &SourceMap, mir: &stanc_rs_mir::mir::Program) -> Vec<String> {
+fn uninitialized_warnings(
+    sources: &SourceMap,
+    mir: &stanc_rs_mir::mir::Program,
+) -> Vec<(stanc_rs_syntax::Span, String)> {
     let mut vars: Vec<((LocKey, LocKey), stanc_rs_syntax::Span, String)> =
         stanc_rs_mir::dataflow::uninitialized_variables(mir)
             .into_iter()
@@ -154,8 +159,7 @@ fn uninitialized_warnings(sources: &SourceMap, mir: &stanc_rs_mir::mir::Program)
             .collect();
     vars.sort_by(|a, b| (&a.0, &a.2).cmp(&(&b.0, &b.2)));
     let mut seen = std::collections::HashSet::new();
-    let ws = vars
-        .into_iter()
+    vars.into_iter()
         .filter(|(_, _, v)| seen.insert(v.clone()))
         .map(|(_, s, v)| {
             (
@@ -165,8 +169,35 @@ fn uninitialized_warnings(sources: &SourceMap, mir: &stanc_rs_mir::mir::Program)
                 ),
             )
         })
-        .collect();
-    render_mir_warnings(sources, ws)
+        .collect()
+}
+
+/// `--warn-pedantic`: the uninitialized variable warnings and stanc3's pedantic checks, on the
+/// program after constant propagation and partial evaluation.
+fn pedantic_warnings(
+    sources: &SourceMap,
+    mir: &stanc_rs_mir::mir::Program,
+) -> Vec<(stanc_rs_syntax::Span, String)> {
+    use stanc_rs_mir::mir::Loc;
+    let mut opt = mir.clone();
+    stanc_rs_mir::optimize::pedantic_suite(&mut opt);
+    let key = |l: &Loc| {
+        l.span().map(|s| {
+            (
+                loc_key(sources, s.file, s.start as usize),
+                loc_key(sources, s.file, s.end as usize),
+            )
+        })
+    };
+    let cmp = |a: &Loc, b: &Loc| key(a).cmp(&key(b));
+    let pp = |l: &Loc| l.span().map(|s| sources.pp_span(s)).unwrap_or_default();
+    let mut ws = uninitialized_warnings(sources, &opt);
+    ws.extend(
+        stanc_rs_mir::pedantic::warnings(&opt, &cmp, &pp)
+            .into_iter()
+            .filter_map(|(l, m)| Some((l.span()?, m))),
+    );
+    ws
 }
 
 /// A successfully compiled program.
@@ -280,7 +311,18 @@ pub fn check_source(name: &str, text: &str, opts: &Options) -> Result<Checked, S
     if opts.warn_uninitialized
         && let Some(mir) = lower_stanc3(&ast, &copts)
     {
-        warnings.extend(uninitialized_warnings(&sources, &mir));
+        warnings.extend(render_mir_warnings(
+            &sources,
+            uninitialized_warnings(&sources, &mir),
+        ));
+    }
+    if opts.warn_pedantic
+        && let Some(mir) = lower_stanc3(&ast, &copts)
+    {
+        warnings.extend(render_mir_warnings(
+            &sources,
+            pedantic_warnings(&sources, &mir),
+        ));
     }
     let included_files = sources.files[1..].iter().map(|f| f.name.clone()).collect();
     Ok(Checked {
